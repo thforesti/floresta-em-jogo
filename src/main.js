@@ -604,10 +604,11 @@ class Jogo extends Phaser.Scene {
     const offY  = HUD_H + (height - HUD_H - gridH) / 2 + R - Math.min(...ys);
 
     // Camadas de desenho (profundidade crescente)
-    const fillG        = this.add.graphics().setDepth(0); // fills iniciais (estático)
-    this.hexChangeG    = this.add.graphics().setDepth(1); // fills de hexs modificados
-    this.hoverG        = this.add.graphics().setDepth(2); // overlay de hover
-    this.selectG       = this.add.graphics().setDepth(3); // borda de seleção
+    const fillG        = this.add.graphics().setDepth(0);   // fills iniciais (estático)
+    this.hexChangeG    = this.add.graphics().setDepth(1);   // fills de hexs modificados
+    this.bordaFireG    = this.add.graphics().setDepth(1.5); // borda pulsante de queimada
+    this.hoverG        = this.add.graphics().setDepth(2);   // overlay de hover
+    this.selectG       = this.add.graphics().setDepth(3);   // borda de seleção
 
     hexes.forEach(({ x, y, row, col }, idx) => {
       const tipo = tipos[idx];
@@ -651,11 +652,13 @@ class Jogo extends Phaser.Scene {
       const producaoAgua      = 0;
       const temBomba          = false;
       const temHidroeletrica  = false;
+      // Queimada: timer de propagação (Phaser.TimerEvent)
+      const propagacaoTimer   = null;
 
       this.hexagonos.push({
         tipo, info, row, col, cx, cy, pts, polygon, emojiTxt,
         bloqueado: false, perfil, bonusNegociacao, vigilancia,
-        producaoAgua, temBomba, temHidroeletrica,
+        producaoAgua, temBomba, temHidroeletrica, propagacaoTimer,
       });
     });
 
@@ -673,6 +676,9 @@ class Jogo extends Phaser.Scene {
 
     this._cicloReocupacao();
     this._cicloAgua();
+    this._iniciarPulsoQueimadas();
+    this._iniciarPropagacoesIniciais();
+    this._cicloQueimadas();
   }
 
   // -------------------------------------------------------------------------
@@ -715,6 +721,7 @@ class Jogo extends Phaser.Scene {
         case 'garimpo_neutralizado': this._menuGarimpoNeutralizado(idx); break;
         case 'nascente':             this._menuNascenteDegradada(idx);   break;
         case 'nascente_ativa':       this._menuNascenteAtiva(idx);       break;
+        case 'queimada':             this._menuQueimada(idx);            break;
         default:                     this._abrirMenu(idx);
       }
     } else {
@@ -962,13 +969,14 @@ class Jogo extends Phaser.Scene {
 
     // Título
     objs.push(this.add.text(mx + MENU_PAD, my + 14, titulo, {
-      fontSize: '16px', color: '#d8f3dc',
+      fontSize: '16px', color: config.tituloColor ?? '#d8f3dc',
       fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
     }).setDepth(DEPTH));
 
     // Descrição
     objs.push(this.add.text(mx + MENU_PAD, my + 36, descricao, {
-      fontSize: '12px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+      fontSize: '12px', color: config.descricaoColor ?? '#74c69d',
+      fontFamily: 'Inter, sans-serif',
       wordWrap: { width: MENU_W - MENU_PAD * 2 - 24 },
     }).setDepth(DEPTH));
 
@@ -1868,6 +1876,307 @@ class Jogo extends Phaser.Scene {
           if (estadoJogo.agua === null) estadoJogo.agua = 0;
           estadoJogo.agua += producaoTotal;
           this.atualizarPainel();
+        }
+      },
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Queimada — menu de urgência
+  // -------------------------------------------------------------------------
+  _menuQueimada(idx) {
+    const hex        = this.hexagonos[idx];
+    const custoBase  = 30000;
+    const custoAgua  = 1000;
+    const custoPipa  = 40000;
+    const temDinheiro = estadoJogo.dinheiro >= custoBase;
+    const temAgua     = estadoJogo.agua !== null && estadoJogo.agua >= custoAgua;
+    const temPipa     = estadoJogo.dinheiro >= custoPipa;
+
+    const _combater = (custoD, usaAgua) => {
+      estadoJogo.dinheiro -= custoD;
+      if (usaAgua) estadoJogo.agua -= custoAgua;
+      this.atualizarPainel();
+      this._fecharMenu();
+      this.selectedIdx = -1;
+      this._desenharSelecao();
+
+      if (hex.propagacaoTimer) { hex.propagacaoTimer.remove(); hex.propagacaoTimer = null; }
+
+      const niv = this._brigadistaNivel();
+      const dur = DEV_MODE
+        ? (niv === 'indigena' ? 7 : niv === 'normal' ? 10 : 15)
+        : (niv === 'indigena' ? 50 : niv === 'normal' ? 80 : 120);
+
+      this._iniciarTimer(idx, dur, () => {
+        this._mudarEstadoHex(idx, 'solo');
+        this._cardIncendioControlado(idx);
+      }, 0xC1440E);
+    };
+
+    this._abrirMenu(idx, {
+      titulo:         '⚠️ ÁREA EM CHAMAS',
+      descricao:      'Ação imediata necessária!',
+      tituloColor:    '#e76f51',
+      descricaoColor: '#e76f51',
+      acoes: [
+        {
+          label:        '🚒 Apagar incêndio',
+          custoStr:     `R$ 30.000 + 1.000L água`,
+          desabilitado: !temDinheiro || !temAgua,
+          aviso:        !temDinheiro
+            ? 'Saldo insuficiente'
+            : !temAgua
+              ? 'Água insuficiente. Recupere uma nascente primeiro.'
+              : null,
+          onPress: () => _combater(custoBase, true),
+        },
+        {
+          label:        '🚛 Acionar caminhão-pipa',
+          custoStr:     `R$ ${custoPipa.toLocaleString('pt-BR')} — sem água`,
+          desabilitado: !temPipa,
+          aviso:        !temPipa ? 'Saldo insuficiente' : null,
+          onPress: () => _combater(custoPipa, false),
+        },
+      ],
+    });
+  }
+
+  // Retorna 'indigena', 'normal' ou 'none' conforme equipe
+  _brigadistaNivel() {
+    const eq = estadoJogo.equipe;
+    if (eq.some(m => m.tipo === 'brigadista_indigena')) return 'indigena';
+    if (eq.some(m => m.tipo === 'brigadista'))          return 'normal';
+    return 'none';
+  }
+
+  // -------------------------------------------------------------------------
+  // Queimada — card incêndio controlado
+  // -------------------------------------------------------------------------
+  _cardIncendioControlado(idx) {
+    this._fecharCard();
+    const { width, height } = this.scale;
+    const CARD_W = 400, CARD_H = 180;
+    const cx = width / 2 - CARD_W / 2, cy = height / 2 - CARD_H / 2;
+    const DEPTH = 20, objs = [];
+
+    const overlay = this.add.graphics().setDepth(DEPTH - 1);
+    overlay.fillStyle(0x000000, 0.55);
+    overlay.fillRect(0, 0, width, height);
+    objs.push(overlay);
+
+    const bgG = this.add.graphics().setDepth(DEPTH);
+    bgG.fillStyle(0x0d2818, 1);
+    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    bgG.lineStyle(1.5, 0x52b788, 1);
+    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    objs.push(bgG);
+
+    objs.push(this.add.text(cx + 20, cy + 18, '✅ Incêndio controlado!', {
+      fontSize: '16px', color: '#52b788',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 20, cy + 52,
+      'A área agora pode ser restaurada. Considere instalar vigilância para prevenir novos incêndios.',
+      { fontSize: '13px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
+        wordWrap: { width: CARD_W - 40 }, lineSpacing: 4 }
+    ).setDepth(DEPTH));
+
+    const btnY = cy + CARD_H - 50, BTN_W = 180, BTN_H = 34;
+    const btnG = this.add.graphics().setDepth(DEPTH);
+    const desBt = h => { btnG.clear(); btnG.fillStyle(h ? 0x2d6a4f : 0x1b4332, 1);
+      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6); };
+    desBt(false); objs.push(btnG);
+
+    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2, 'Continuar', {
+      fontSize: '13px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    const z = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
+      .setDepth(DEPTH).setInteractive({ useHandCursor: true });
+    z.on('pointerover', () => desBt(true)); z.on('pointerout', () => desBt(false));
+    z.on('pointerdown', () => this._fecharCard());
+    objs.push(z);
+    this.cardObjs = objs;
+  }
+
+  // -------------------------------------------------------------------------
+  // Queimada — card floresta destruída pela propagação
+  // -------------------------------------------------------------------------
+  _cardFlorestaDestruida() {
+    this._fecharCard();
+    const { width, height } = this.scale;
+    const CARD_W = 420, CARD_H = 210;
+    const cx = width / 2 - CARD_W / 2, cy = height / 2 - CARD_H / 2;
+    const DEPTH = 20, objs = [];
+
+    const overlay = this.add.graphics().setDepth(DEPTH - 1);
+    overlay.fillStyle(0x000000, 0.55);
+    overlay.fillRect(0, 0, width, height);
+    objs.push(overlay);
+
+    const bgG = this.add.graphics().setDepth(DEPTH);
+    bgG.fillStyle(0x1a0505, 1);
+    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    bgG.lineStyle(1.5, 0xC1440E, 1);
+    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    objs.push(bgG);
+
+    objs.push(this.add.text(cx + 20, cy + 18, '💔 Sua floresta foi destruída!', {
+      fontSize: '16px', color: '#e76f51',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 20, cy + 52,
+      'O incêndio se propagou e destruiu uma área restaurada. Todo o investimento nessa área foi perdido. Considere instalar vigilância nas áreas vizinhas para evitar novas perdas.',
+      { fontSize: '13px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
+        wordWrap: { width: CARD_W - 40 }, lineSpacing: 4 }
+    ).setDepth(DEPTH));
+
+    const btnY = cy + CARD_H - 52, BTN_W = 180, BTN_H = 34;
+    const btnG = this.add.graphics().setDepth(DEPTH);
+    const desBt = h => { btnG.clear(); btnG.fillStyle(h ? 0x4a1a06 : 0x2d1008, 1);
+      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6); };
+    desBt(false); objs.push(btnG);
+
+    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2, 'Entendido', {
+      fontSize: '13px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    const z = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
+      .setDepth(DEPTH).setInteractive({ useHandCursor: true });
+    z.on('pointerover', () => desBt(true)); z.on('pointerout', () => desBt(false));
+    z.on('pointerdown', () => this._fecharCard());
+    objs.push(z);
+    this.cardObjs = objs;
+  }
+
+  // -------------------------------------------------------------------------
+  // Queimada — alerta banner no topo (abaixo do HUD)
+  // -------------------------------------------------------------------------
+  _mostrarAlertaIncendio(msg) {
+    const { width } = this.scale;
+    const H = 36;
+    const bgG = this.add.graphics().setDepth(25);
+    bgG.fillStyle(0xC1440E, 1);
+    bgG.fillRect(0, 70, width, H);
+    const txt = this.add.text(width / 2, 70 + H / 2, msg, {
+      fontSize: '14px', color: '#ffffff',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(25);
+    this.tweens.add({
+      targets: [bgG, txt], alpha: 0, delay: 2500, duration: 600,
+      onComplete: () => { bgG.destroy(); txt.destroy(); },
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Queimada — pulsação visual de borda (loop permanente)
+  // -------------------------------------------------------------------------
+  _iniciarPulsoQueimadas() {
+    let fase = 0;
+    this.time.addEvent({
+      delay: 400, loop: true,
+      callback: () => {
+        fase = 1 - fase;
+        this.bordaFireG.clear();
+        const cor = fase === 0 ? 0xC1440E : 0xff6b35;
+        this.hexagonos.forEach(hex => {
+          if (hex.tipo !== 'queimada') return;
+          this.bordaFireG.lineStyle(3, cor, 1);
+          this.bordaFireG.beginPath();
+          this.bordaFireG.moveTo(hex.pts[0].x, hex.pts[0].y);
+          for (let i = 1; i < 6; i++) this.bordaFireG.lineTo(hex.pts[i].x, hex.pts[i].y);
+          this.bordaFireG.closePath();
+          this.bordaFireG.strokePath();
+        });
+      },
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Queimada — propagação
+  // -------------------------------------------------------------------------
+  _iniciarPropagacoesIniciais() {
+    this.hexagonos.forEach((hex, idx) => {
+      if (hex.tipo === 'queimada') this._iniciarPropagacao(idx);
+    });
+  }
+
+  _iniciarPropagacao(idx) {
+    const hex = this.hexagonos[idx];
+    const dur = DEV_MODE ? 20000 : 90000;
+    hex.propagacaoTimer = this.time.delayedCall(dur, () => {
+      if (hex.tipo !== 'queimada') return;
+      this._propagarIncendio(idx);
+    });
+  }
+
+  _propagarIncendio(idx) {
+    const vizinhos  = this._vizinhosHex(idx);
+    const candidatos = vizinhos.filter(i => {
+      const t = this.hexagonos[i].tipo;
+      return t !== 'nascente_ativa' && t !== 'indigena' && t !== 'queimada';
+    });
+
+    if (candidatos.length > 0) {
+      const alvoIdx = candidatos[Math.floor(Math.random() * candidatos.length)];
+      const alvo    = this.hexagonos[alvoIdx];
+      const eraMata = ['floresta', 'floresta_pioneira'].includes(alvo.tipo);
+      this._mudarEstadoHex(alvoIdx, 'queimada');
+      this._iniciarPropagacao(alvoIdx);
+      this._mostrarAlertaIncendio('🔥 O incêndio se propagou!');
+      if (eraMata) this._cardFlorestaDestruida();
+    }
+
+    // O foco original continua ativo — reinicia o timer de propagação
+    this._iniciarPropagacao(idx);
+  }
+
+  _vizinhosHex(idx) {
+    const { row, col } = this.hexagonos[idx];
+    const ROWS = 5, COLS = 6;
+    const offsets = row % 2 === 0
+      ? [[-1, -1], [-1, 0], [0, -1], [0, 1], [1, -1], [1, 0]]
+      : [[-1,  0], [-1, 1], [0, -1], [0, 1], [1,  0], [1, 1]];
+
+    return offsets
+      .map(([dr, dc]) => {
+        const r = row + dr, c = col + dc;
+        if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return -1;
+        return this.hexagonos.findIndex(h => h.row === r && h.col === c);
+      })
+      .filter(i => i >= 0);
+  }
+
+  // -------------------------------------------------------------------------
+  // Queimada — ciclo de novos incêndios espontâneos
+  // -------------------------------------------------------------------------
+  _cicloQueimadas() {
+    const dur = DEV_MODE ? 30000 : 120000;
+    this.time.addEvent({
+      delay: dur, loop: true,
+      callback: () => {
+        const candidatos = [];
+        this.hexagonos.forEach((hex, idx) => {
+          if (hex.tipo === 'queimada' || hex.bloqueado) return;
+          if (hex.tipo === 'nascente_ativa' || hex.tipo === 'indigena') return;
+          if (hex.vigilancia) return;
+          const temRisco = this._vizinhosHex(idx).some(vi => {
+            const t = this.hexagonos[vi].tipo;
+            return t === 'garimpo' || t === 'pecuaria';
+          });
+          if (temRisco) candidatos.push(idx);
+        });
+
+        if (candidatos.length > 0 && Math.random() < 0.25) {
+          const alvoIdx = candidatos[Math.floor(Math.random() * candidatos.length)];
+          this._mudarEstadoHex(alvoIdx, 'queimada');
+          this._iniciarPropagacao(alvoIdx);
+          this._mostrarAlertaIncendio('🔥 Fogo detectado em nova área!');
         }
       },
     });
