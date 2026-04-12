@@ -666,8 +666,37 @@ const FAUNA_CATALOGO = [
 // ---------------------------------------------------------------------------
 // Jogo — mapa hexagonal + painel de recursos + interação + mecânicas
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Mapa de texturas — tipo de hexágono → chave de imagem carregada no preload
+// ---------------------------------------------------------------------------
+const HEX_TEXTURE_MAP = {
+  solo:                 'hex-solo-degradado',
+  solo_preparado:       'hex-solo-degradado',
+  garimpo:              'hex-garimpo',
+  garimpo_neutralizado: 'hex-solo-degradado',
+  floresta:             'hex-floresta-climax',
+  floresta_pioneira:    'hex-floresta-pioneira',
+  floresta_secundaria:  'hex-floresta-secundaria',
+  floresta_climax:      'hex-floresta-climax',
+  queimada:             'hex-queimada',
+  indigena:             'hex-area-indigena',
+  pecuaria:             'hex-pecuaria',
+  pecuaria_intensiva:   'hex-pecuaria',
+};
+
 class Jogo extends Phaser.Scene {
   constructor() { super({ key: 'Jogo' }); }
+
+  preload() {
+    this.load.image('hex-solo-degradado',   'assets/hexagonos/solo-degradado.png');
+    this.load.image('hex-floresta-climax',   'assets/hexagonos/floresta-climax.png');
+    this.load.image('hex-floresta-pioneira', 'assets/hexagonos/floresta-pioneira.png');
+    this.load.image('hex-floresta-secundaria', 'assets/hexagonos/floresta-secundaria.png');
+    this.load.image('hex-garimpo',           'assets/hexagonos/garimpo.png');
+    this.load.image('hex-pecuaria',          'assets/hexagonos/pecuaria.png');
+    this.load.image('hex-queimada',          'assets/hexagonos/queimada.png');
+    this.load.image('hex-area-indigena',     'assets/hexagonos/area-indigena.png');
+  }
 
   create() {
     const { width, height } = this.scale;
@@ -902,8 +931,35 @@ class Jogo extends Phaser.Scene {
         evolucaoTimer, evolucaoTimestamp,
         garimpoExpansaoTimer, queimadaCrimTimer, fumaçaTimer, fumaçaObj, invasaoTimer,
         _fumacaAtiva: false,
+        _texImg: null, _texMaskG: null,
       });
     });
+
+    // -----------------------------------------------------------------------
+    // Texturas + borda permanente acima das texturas
+    // -----------------------------------------------------------------------
+    {
+      const HEX_R   = 36;
+      const HEX_TEX_DEPTH    = 1.2;   // acima de fillG (0) e hexChangeG (1)
+      const HEX_BORDER_DEPTH = 1.45;  // acima das texturas, abaixo do hover (2)
+
+      // Borda permanente — um Graphics por hexágono, sempre visível acima da textura
+      this.hexagonos.forEach(hex => {
+        const bG = this.add.graphics().setDepth(HEX_BORDER_DEPTH);
+        bG.lineStyle(2, 0x2d6a4f, 1);
+        bG.beginPath();
+        bG.moveTo(hex.pts[0].x, hex.pts[0].y);
+        for (let i = 1; i < 6; i++) bG.lineTo(hex.pts[i].x, hex.pts[i].y);
+        bG.closePath();
+        bG.strokePath();
+        hex._borderG = bG;
+      });
+
+      // Textura inicial para cada hexágono
+      this.hexagonos.forEach(hex => {
+        this._setHexTexture(hex, HEX_R, HEX_TEX_DEPTH);
+      });
+    }
 
     // -----------------------------------------------------------------------
     // Estado de interação
@@ -1066,6 +1122,9 @@ class Jogo extends Phaser.Scene {
 
     hex.emojiTxt.setText(info.emoji);
 
+    // Atualiza textura hexagonal
+    this._setHexTexture(hex, 36, 1.2);
+
     // Avalia upgrades/downgrades de semáforos indígenas após qualquer mudança
     this._verificarSemaforosIndigenas();
     // Verifica cluster de SAFs
@@ -1137,6 +1196,44 @@ class Jogo extends Phaser.Scene {
       this._gameOverAtivado = true;
       this.time.delayedCall(200, () => this._mostrarGameOver());
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Textura hexagonal
+  // -------------------------------------------------------------------------
+  _setHexTexture(hex, R, depth) {
+    const texKey = HEX_TEXTURE_MAP[hex.tipo];
+
+    if (!texKey) {
+      // Sem textura mapeada — oculta imagem existente e sai
+      if (hex._texImg) hex._texImg.setVisible(false);
+      return;
+    }
+
+    if (hex._texImg) {
+      // Reutiliza imagem já criada — só troca textura
+      hex._texImg.setTexture(texKey).setVisible(true);
+      return;
+    }
+
+    // Primeira vez: cria máscara geométrica e imagem
+    const maskG = this.add.graphics();
+    maskG.fillStyle(0xffffff, 1);
+    maskG.beginPath();
+    maskG.moveTo(hex.pts[0].x, hex.pts[0].y);
+    for (let i = 1; i < 6; i++) maskG.lineTo(hex.pts[i].x, hex.pts[i].y);
+    maskG.closePath();
+    maskG.fillPath();
+
+    const geoMask = maskG.createGeometryMask();
+
+    const img = this.add.image(hex.cx, hex.cy, texKey)
+      .setDisplaySize(R * Math.sqrt(3) * 2, R * 2.1)
+      .setDepth(depth)
+      .setMask(geoMask);
+
+    hex._texImg  = img;
+    hex._texMaskG = maskG;
   }
 
   // -------------------------------------------------------------------------
