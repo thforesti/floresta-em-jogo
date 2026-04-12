@@ -379,7 +379,47 @@ class Onboarding3 extends Phaser.Scene {
 }
 
 // ---------------------------------------------------------------------------
-// Jogo — placeholder
+// Tipos de terreno
+// ---------------------------------------------------------------------------
+const TIPOS = {
+  solo:     { label: 'Solo degradado',      emoji: '🟫', cor: 0x8B6914, hex: '#8B6914' },
+  garimpo:  { label: 'Garimpo',             emoji: '⛏️',  cor: 0x6B6B6B, hex: '#6B6B6B' },
+  nascente: { label: 'Nascente degradada',  emoji: '💧', cor: 0x4A90D9, hex: '#4A90D9' },
+  queimada: { label: 'Queimada',            emoji: '🔥', cor: 0xC1440E, hex: '#C1440E' },
+  indigena: { label: 'Área indígena',       emoji: '🪶', cor: 0x7B4FA6, hex: '#7B4FA6' },
+  pecuaria: { label: 'Pecuária/Soja',       emoji: '🐄', cor: 0xC8A951, hex: '#C8A951' },
+  floresta: { label: 'Floresta estabelecida', emoji: '🌳', cor: 0x52b788, hex: '#52b788' },
+};
+
+const DISTRIBUICAO = {
+  'Fácil':   { solo: 12, garimpo: 1, nascente: 2, queimada: 1, indigena: 1, pecuaria: 2, floresta: 3 },
+  'Médio':   { solo: 10, garimpo: 2, nascente: 2, queimada: 2, indigena: 1, pecuaria: 3, floresta: 1 },
+  'Difícil': { solo:  8, garimpo: 4, nascente: 3, queimada: 3, indigena: 2, pecuaria: 4, floresta: 0 },
+};
+
+function gerarTipos(dificuldade) {
+  const dist = DISTRIBUICAO[dificuldade] ?? DISTRIBUICAO['Médio'];
+  const lista = [];
+
+  // Adiciona os tipos especificados
+  for (const [tipo, qtd] of Object.entries(dist)) {
+    for (let i = 0; i < qtd; i++) lista.push(tipo);
+  }
+
+  // Completa até 30 com solo degradado se necessário
+  while (lista.length < 30) lista.push('solo');
+
+  // Embaralha (Fisher-Yates)
+  for (let i = lista.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [lista[i], lista[j]] = [lista[j], lista[i]];
+  }
+
+  return lista;
+}
+
+// ---------------------------------------------------------------------------
+// Jogo — mapa hexagonal (pointy-top) com tipos de terreno
 // ---------------------------------------------------------------------------
 class Jogo extends Phaser.Scene {
   constructor() { super({ key: 'Jogo' }); }
@@ -387,22 +427,77 @@ class Jogo extends Phaser.Scene {
   create() {
     const { width, height } = this.scale;
     addFundo(this);
-    addCard(this, width / 2, height / 2, 600, 200);
 
-    this.add.text(width / 2, height / 2 - 30,
-      `Bem-vindo, ${dadosJogo.nome}!`, {
-      fontSize: '28px',
-      color: COR.textoPrinc,
-      fontFamily: 'Inter, sans-serif',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
+    const R       = 36;
+    const COLS    = 6;
+    const ROWS    = 5;                    // 6×5 = 30 hexágonos
+    const colStep = R * Math.sqrt(3);    // ~62.4 px — espaçamento horizontal
+    const rowStep = R * 1.5;             //  54 px — espaçamento vertical
 
-    this.add.text(width / 2, height / 2 + 20,
-      `${dadosJogo.ong}  ·  ${dadosJogo.dificuldade}  ·  R$ ${dadosJogo.saldo.toLocaleString('pt-BR')}`, {
-      fontSize: '15px',
-      color: COR.textoSec,
-      fontFamily: 'Inter, sans-serif',
-    }).setOrigin(0.5);
+    const tipos = gerarTipos(dadosJogo.dificuldade);
+    this.hexagonos = [];
+
+    // Centros da grade (pointy-top, linhas ímpares deslocadas)
+    const hexes = [];
+    for (let row = 0; row < ROWS; row++) {
+      for (let col = 0; col < COLS; col++) {
+        hexes.push({
+          x: col * colStep + (row % 2 === 1 ? colStep / 2 : 0),
+          y: row * rowStep,
+          row,
+          col,
+        });
+      }
+    }
+
+    // Bounding box → offset de centralização
+    const xs    = hexes.map(h => h.x);
+    const ys    = hexes.map(h => h.y);
+    const halfW = R * Math.sqrt(3) / 2;
+    const gridW = Math.max(...xs) - Math.min(...xs) + R * Math.sqrt(3);
+    const gridH = Math.max(...ys) - Math.min(...ys) + R * 2;
+    const offX  = (width  - gridW) / 2 + halfW - Math.min(...xs);
+    const offY  = (height - gridH) / 2 + R     - Math.min(...ys);
+
+    const g = this.add.graphics();
+
+    hexes.forEach(({ x, y, row, col }, idx) => {
+      const tipo  = tipos[idx];
+      const info  = TIPOS[tipo];
+      const cx    = x + offX;
+      const cy    = y + offY;
+
+      // Vértices pointy-top: 30°, 90°, 150°, 210°, 270°, 330°
+      const pts = Array.from({ length: 6 }, (_, i) => {
+        const a = Math.PI / 6 + (Math.PI / 3) * i;
+        return { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) };
+      });
+
+      // Preenchimento com cor do tipo
+      g.fillStyle(info.cor, 1);
+      g.beginPath();
+      g.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < 6; i++) g.lineTo(pts[i].x, pts[i].y);
+      g.closePath();
+      g.fillPath();
+
+      // Borda
+      g.lineStyle(2, 0x2d6a4f, 1);
+      g.beginPath();
+      g.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < 6; i++) g.lineTo(pts[i].x, pts[i].y);
+      g.closePath();
+      g.strokePath();
+
+      // Emoji centralizado
+      this.add.text(cx, cy, info.emoji, {
+        fontSize: '20px',
+        fontFamily: 'sans-serif',
+      }).setOrigin(0.5);
+
+      // Armazena dados para uso futuro
+      this.hexagonos.push({ tipo, info, row, col, cx, cy });
+    });
   }
 }
 
