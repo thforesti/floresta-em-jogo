@@ -413,6 +413,7 @@ const TIPOS = {
   floresta_pioneira:    { label: 'Floresta Pioneira',     emoji: '🌿', cor: 0x74c69d, hex: '#74c69d' },
   garimpo_neutralizado: { label: 'Garimpo Neutralizado',  emoji: '🟫',   cor: 0x8B6914, hex: '#8B6914' },
   nascente_ativa:       { label: 'Nascente Ativa',        emoji: '💧✨', cor: 0x1a6b8a, hex: '#1a6b8a' },
+  saf:                  { label: 'Sistema Agroflorestal', emoji: '🌾',   cor: 0x5C7A2E, hex: '#5C7A2E' },
 };
 
 const DISTRIBUICAO = {
@@ -453,6 +454,8 @@ const estadoJogo = {
   energia:         null,
   climax:          0,
   aliancaIndigena: false,
+  psaAtivo:        false,
+  receitaPassiva:  0,
 };
 
 // ---------------------------------------------------------------------------
@@ -479,6 +482,7 @@ const DESCRICOES = {
   floresta:             'Trecho de floresta nativa preservada.',
   garimpo_neutralizado: 'Área com extração encerrada. Requer fitorremediação.',
   nascente_ativa:       'Nascente recuperada e produtiva. Gera água por ciclo.',
+  saf:                  'Sistema agroflorestal em operação. Gera renda e restaura o solo.',
 };
 
 const PERFIS_GARIMPEIRO = [
@@ -492,6 +496,15 @@ const PERFIS_LIDERANCA = [
   { nome: 'Liderança Jovem',       descricao: 'Mais aberta e pragmática, focada no futuro da comunidade e das próximas gerações.', chanceBase: 0.60 },
 ];
 
+const PERFIS_FAZENDEIRO = [
+  { id: 'endividado',  nome: 'O Endividado',  frase: 'Tô devendo pro banco há 3 anos. Preciso de uma saída.',                bonusContato:  0.15, bonusSAF:  0.20, bonusPSA: 0    },
+  { id: 'herdeiro',   nome: 'O Herdeiro',    frase: 'Meu pai deixou essa terra pra mim. Quero fazer algo bom com ela.',      bonusContato:  0.10, bonusSAF:  0,    bonusPSA: 0    },
+  { id: 'resistente', nome: 'O Resistente',  frase: 'Minha família vive aqui há 40 anos. Não vou mudar por qualquer conversa.', bonusContato: -0.10, bonusSAF:  0,    bonusPSA: 0    },
+  { id: 'oportunista',nome: 'O Oportunista', frase: 'Ouvi falar desse negócio de carbono. Me conta mais.',                  bonusContato:  0,    bonusSAF:  0,    bonusPSA: 0.20 },
+];
+
+const NOMES_FAZENDEIROS = ['João', 'Carlos', 'Antônio', 'Sebastião', 'Raimundo', 'Pedro'];
+
 // ---------------------------------------------------------------------------
 // Jogo — mapa hexagonal + painel de recursos + interação + mecânicas
 // ---------------------------------------------------------------------------
@@ -502,12 +515,15 @@ class Jogo extends Phaser.Scene {
     const { width, height } = this.scale;
 
     // Inicializa estado (mudas já pode ter sido ajustado pelo devMode)
-    estadoJogo.dinheiro = dadosJogo.saldo;
-    estadoJogo.agua     = null;
-    estadoJogo.equipe   = [];
+    estadoJogo.dinheiro        = dadosJogo.saldo;
+    estadoJogo.agua            = null;
+    estadoJogo.equipe          = [];
     if (!DEV_MODE) estadoJogo.mudas = 0;
-    estadoJogo.energia  = null;
-    estadoJogo.climax   = 0;
+    estadoJogo.energia         = null;
+    estadoJogo.climax          = 0;
+    estadoJogo.aliancaIndigena = false;
+    estadoJogo.psaAtivo        = false;
+    estadoJogo.receitaPassiva  = 0;
 
     addFundo(this);
 
@@ -671,6 +687,21 @@ class Jogo extends Phaser.Scene {
       const parcerias         = [];   // 'sementes' | 'brigadistas'
       const dialogoBloqueado  = false;
       const aliancaCompleta   = false;
+      // Pecuária: semáforo, perfil do fazendeiro, parceria, receita, timer de expansão
+      const semaforoPecuaria  = tipo === 'pecuaria' ? 'vermelho' : null;
+      const perfilFazendeiro  = tipo === 'pecuaria'
+        ? (() => {
+            const p = PERFIS_FAZENDEIRO[Math.floor(Math.random() * PERFIS_FAZENDEIRO.length)];
+            const nomeP = NOMES_FAZENDEIROS[Math.floor(Math.random() * NOMES_FAZENDEIROS.length)];
+            return { ...p, nomePropio: nomeP, idade: 35 + Math.floor(Math.random() * 34) };
+          })()
+        : null;
+      const bonusContatoPec   = 0;
+      const contatoBloqueado  = false;
+      const parceiriaPec      = null;  // 'saf' | 'intensiva' | 'manejo'
+      const receitaSAF        = 0;
+      const expansaoTimer     = null;
+      const clusterBonus      = false;
 
       this.hexagonos.push({
         tipo, info, row, col, cx, cy, pts, polygon, emojiTxt,
@@ -678,6 +709,8 @@ class Jogo extends Phaser.Scene {
         producaoAgua, temBomba, temHidroeletrica, propagacaoTimer,
         semaforoIndigena, perfilLideranca, bonusDialogo,
         parcerias, dialogoBloqueado, aliancaCompleta,
+        semaforoPecuaria, perfilFazendeiro, bonusContatoPec,
+        contatoBloqueado, parceiriaPec, receitaSAF, expansaoTimer, clusterBonus,
       });
     });
 
@@ -701,6 +734,8 @@ class Jogo extends Phaser.Scene {
     this._iniciarPropagacoesIniciais();
     this._cicloQueimadas();
     this._cicloParcerias();
+    this._iniciarExpansoesPastos();
+    this._cicloReceitaSAF();
   }
 
   // -------------------------------------------------------------------------
@@ -745,6 +780,8 @@ class Jogo extends Phaser.Scene {
         case 'nascente_ativa':       this._menuNascenteAtiva(idx);       break;
         case 'queimada':             this._menuQueimada(idx);            break;
         case 'indigena':             this._menuIndigena(idx);            break;
+        case 'pecuaria':             this._menuPecuaria(idx);            break;
+        case 'saf':                  this._menuSAF(idx);                 break;
         default:                     this._abrirMenu(idx);
       }
     } else {
@@ -806,6 +843,10 @@ class Jogo extends Phaser.Scene {
 
     // Avalia upgrades/downgrades de semáforos indígenas após qualquer mudança
     this._verificarSemaforosIndigenas();
+    // Verifica cluster de SAFs
+    if (novoTipo === 'saf') this._verificarClusterSAF(idx);
+    // Redesenha semáforos de pecuária (hex pode ter mudado de pecuaria para saf)
+    this._redesenharSemaforos();
   }
 
   // -------------------------------------------------------------------------
@@ -1937,21 +1978,25 @@ class Jogo extends Phaser.Scene {
   _redesenharSemaforos() {
     this.semaforoG.clear();
     const COR_SEM = { vermelho: 0xC1440E, amarelo: 0xC8A951, verde: 0x52b788 };
-    this.hexagonos.forEach(hex => {
-      if (hex.tipo !== 'indigena' || !hex.semaforoIndigena) return;
-      const cor = COR_SEM[hex.semaforoIndigena];
+
+    const _desenhar = (hex, estado, marcador = false) => {
+      const cor = COR_SEM[estado];
       const sx = hex.cx + 26, sy = hex.cy - 22;
-      // Aro escuro
       this.semaforoG.fillStyle(0x0d2818, 1);
       this.semaforoG.fillCircle(sx, sy, 9);
-      // Círculo colorido
       this.semaforoG.fillStyle(cor, 1);
       this.semaforoG.fillCircle(sx, sy, 7);
-      // Estrela dourada se aliança completa
-      if (hex.aliancaCompleta) {
+      if (marcador) {
         this.semaforoG.fillStyle(0xFFD700, 1);
         this.semaforoG.fillCircle(sx, sy, 3);
       }
+    };
+
+    this.hexagonos.forEach(hex => {
+      if (hex.tipo === 'indigena' && hex.semaforoIndigena)
+        _desenhar(hex, hex.semaforoIndigena, hex.aliancaCompleta);
+      if (hex.tipo === 'pecuaria' && hex.semaforoPecuaria)
+        _desenhar(hex, hex.semaforoPecuaria, false);
     });
   }
 
@@ -2305,6 +2350,419 @@ class Jogo extends Phaser.Scene {
     z.on('pointerdown', () => { this._fecharCard(); this.selectedIdx = -1; this._desenharSelecao(); });
     objs.push(z);
     this.cardObjs = objs;
+  }
+
+  // -------------------------------------------------------------------------
+  // Pecuária — helpers de cálculo
+  // -------------------------------------------------------------------------
+  _calcularChanceContatoPec(idx) {
+    const hex = this.hexagonos[idx];
+    const pf  = hex.perfilFazendeiro;
+    const temPSA       = estadoJogo.psaAtivo;
+    const temSAFViz    = this._vizinhosHex(idx).some(vi => this.hexagonos[vi].tipo === 'saf');
+    const temTecnico   = estadoJogo.equipe.some(m => m.tipo === 'tecnico_negociacao');
+    let chance = 0.40 + (pf ? pf.bonusContato : 0) + hex.bonusContatoPec;
+    if (temPSA)    chance += 0.20;
+    if (temSAFViz) chance += 0.15;
+    if (temTecnico) chance += 0.10;
+    if (pf?.id === 'oportunista' && temPSA) chance += pf.bonusPSA;
+    return Math.min(0.90, Math.max(0.05, chance));
+  }
+
+  // -------------------------------------------------------------------------
+  // Pecuária — menus
+  // -------------------------------------------------------------------------
+  _menuPecuaria(idx) {
+    const hex = this.hexagonos[idx];
+    if (hex.semaforoPecuaria === 'vermelho') this._menuPecuariaVermelho(idx);
+    else                                     this._menuPecuariaPropostas(idx);
+  }
+
+  _menuPecuariaVermelho(idx) {
+    const hex     = this.hexagonos[idx];
+    const chance  = this._calcularChanceContatoPec(idx);
+    const pct     = Math.round(chance * 100);
+    const bloq    = hex.contatoBloqueado;
+    const semDin  = estadoJogo.dinheiro < 0; // gratuito, nunca bloqueado por saldo
+
+    this._abrirMenu(idx, {
+      titulo:      '🐄 Pecuária / Soja',
+      descricao:   `Propriedade sem contato. Chance de abertura: ${pct}%`,
+      tituloColor: '#C8A951',
+      acoes: [{
+        label:        bloq ? '⏳ Aguardar cooldown...' : '📞 Iniciar contato',
+        custoStr:     'Gratuito',
+        desabilitado: bloq,
+        aviso:        bloq ? 'Fazendeiro não atendeu. Aguarde antes de tentar de novo.' : null,
+        onPress: () => {
+          this._fecharMenu();
+          this._executarContatoPecuaria(idx);
+        },
+      }],
+    });
+  }
+
+  _executarContatoPecuaria(idx) {
+    const hex    = this.hexagonos[idx];
+    const chance = this._calcularChanceContatoPec(idx);
+
+    if (Math.random() < chance) {
+      hex.semaforoPecuaria = 'amarelo';
+      hex.bonusContatoPec  = 0;
+      // Cancela timer de expansão
+      if (hex.expansaoTimer) { hex.expansaoTimer.remove(); hex.expansaoTimer = null; }
+      this._redesenharSemaforos();
+      this._cardApresentacaoFazendeiro(idx);
+    } else {
+      hex.bonusContatoPec = Math.min(0.30, hex.bonusContatoPec + 0.10);
+      hex.contatoBloqueado = true;
+      const dur = DEV_MODE ? 8000 : 45000;
+      this.time.delayedCall(dur, () => { hex.contatoBloqueado = false; });
+      this._mostrarToast('O fazendeiro não atendeu. Tente novamente em breve.');
+    }
+  }
+
+  _cardApresentacaoFazendeiro(idx) {
+    this._fecharCard();
+    const hex = this.hexagonos[idx];
+    const pf  = hex.perfilFazendeiro;
+
+    const { width, height } = this.scale;
+    const CARD_W = 400, CARD_H = 260;
+    const cx = width / 2 - CARD_W / 2, cy = height / 2 - CARD_H / 2;
+    const DEPTH = 20, objs = [];
+
+    const overlay = this.add.graphics().setDepth(DEPTH - 1);
+    overlay.fillStyle(0x000000, 0.55);
+    overlay.fillRect(0, 0, width, height);
+    objs.push(overlay);
+
+    const bgG = this.add.graphics().setDepth(DEPTH);
+    bgG.fillStyle(0x1a1200, 1);
+    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    bgG.lineStyle(1.5, 0xC8A951, 1);
+    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    objs.push(bgG);
+
+    // Emoji grande
+    objs.push(this.add.text(cx + 30, cy + CARD_H / 2, '🧑‍🌾', {
+      fontSize: '52px', fontFamily: 'sans-serif',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 70, cy + 20, `${pf.nomePropio}, ${pf.idade} anos`, {
+      fontSize: '15px', color: '#C8A951',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 70, cy + 42, pf.nome, {
+      fontSize: '12px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
+    }).setDepth(DEPTH));
+
+    const divG = this.add.graphics().setDepth(DEPTH);
+    divG.lineStyle(1, 0x3a2a00, 1);
+    divG.lineBetween(cx + 70, cy + 62, cx + CARD_W - 20, cy + 62);
+    objs.push(divG);
+
+    objs.push(this.add.text(cx + 70, cy + 74, `"${pf.frase}"`, {
+      fontSize: '12px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
+      fontStyle: 'italic', wordWrap: { width: CARD_W - 90 }, lineSpacing: 3,
+    }).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 70, cy + 156,
+      'Contato estabelecido! Agora você pode fazer propostas.', {
+      fontSize: '11px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+      wordWrap: { width: CARD_W - 90 },
+    }).setDepth(DEPTH));
+
+    const btnY = cy + CARD_H - 54, BTN_W = 200, BTN_H = 36;
+    const btnG = this.add.graphics().setDepth(DEPTH);
+    const desBt = h => { btnG.clear(); btnG.fillStyle(h ? 0x3a2a00 : 0x2a1e00, 1);
+      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6); };
+    desBt(false); objs.push(btnG);
+
+    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2, 'Ver propostas', {
+      fontSize: '13px', color: '#C8A951',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    const z = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
+      .setDepth(DEPTH).setInteractive({ useHandCursor: true });
+    z.on('pointerover', () => desBt(true)); z.on('pointerout', () => desBt(false));
+    z.on('pointerdown', () => { this._fecharCard(); this._menuPecuariaPropostas(idx); });
+    objs.push(z);
+    this.cardObjs = objs;
+  }
+
+  _menuPecuariaPropostas(idx) {
+    const hex      = this.hexagonos[idx];
+    const pf       = hex.perfilFazendeiro;
+    const temPSA   = estadoJogo.psaAtivo;
+    const verde    = hex.semaforoPecuaria === 'verde';
+    const sem80    = estadoJogo.dinheiro < 80000;
+    const sem20    = estadoJogo.dinheiro < 20000;
+    const sem60    = estadoJogo.dinheiro < 60000;
+    const conBloq  = hex.contatoBloqueado;
+
+    // Calcula chances das propostas
+    let chanceSAF = 0.55 + (pf?.id === 'endividado' ? pf.bonusSAF : 0);
+    if (temPSA && pf?.id === 'oportunista') chanceSAF += pf.bonusPSA;
+    chanceSAF = Math.min(0.90, chanceSAF);
+    const pctSAF  = Math.round(chanceSAF * 100);
+    const pctInt  = 70;
+    const pctMan  = 45;
+    const pctRef  = 65;
+
+    const _proposta = (tipo, custo, dur) => {
+      estadoJogo.dinheiro -= custo;
+      this.atualizarPainel();
+      this._fecharMenu();
+      this.selectedIdx = -1; this._desenharSelecao();
+
+      if (tipo === 'saf') {
+        this._iniciarTimer(idx, dur, () => {
+          hex.receitaSAF       = 10000;
+          hex.parceiriaPec     = 'saf';
+          hex.semaforoPecuaria = 'verde';
+          this._mudarEstadoHex(idx, 'saf');
+          this._mostrarToast('🌾 SAF estabelecido! +R$ 10.000/ciclo.');
+        }, 0x5C7A2E);
+      } else if (tipo === 'intensiva') {
+        this._iniciarTimer(idx, dur, () => {
+          hex.parceiriaPec     = 'intensiva';
+          hex.semaforoPecuaria = 'verde';
+          this._redesenharSemaforos();
+          this._adicionarIconeHex(idx, '💪', 0);
+          this._mostrarToast('🐄 Pecuária intensiva adotada. Relação melhorada.');
+        }, 0xC8A951);
+      } else if (tipo === 'manejo') {
+        this._iniciarTimer(idx, dur, () => {
+          hex.receitaSAF       = 5000;
+          hex.parceiriaPec     = 'manejo';
+          hex.semaforoPecuaria = 'verde';
+          this._redesenharSemaforos();
+          this._adicionarIconeHex(idx, '🪵', 0);
+          this._mostrarToast('🪵 Manejo florestal iniciado. +R$ 5.000/ciclo.');
+        }, 0x8B6914);
+      } else if (tipo === 'reflorestamento') {
+        this._iniciarTimer(idx, dur, () => {
+          this._mudarEstadoHex(idx, 'floresta_pioneira');
+          this._mostrarToast('🌳 Reflorestamento concluído! Área restaurada com espécies nativas.');
+        }, 0x52b788);
+      }
+    };
+
+    const acoes = [
+      {
+        label:        `🌾 Sugerir SAF (${pctSAF}% aceite)`,
+        custoStr:     `R$ 80.000 — gera R$ 10.000/ciclo`,
+        desabilitado: sem80 || conBloq,
+        aviso:        sem80 ? 'Saldo insuficiente' : conBloq ? 'Aguarde antes de nova proposta' : null,
+        onPress: () => {
+          if (Math.random() < chanceSAF / 100 * 100 / 100) {
+            // Compat: use float
+          }
+          const aceite = Math.random() < chanceSAF;
+          if (aceite) _proposta('saf', 80000, DEV_MODE ? 10 : 60);
+          else this._recusaFazendeiro(idx);
+        },
+      },
+      {
+        label:        `🐄 Sugerir pecuária intensiva (${pctInt}% aceite)`,
+        custoStr:     `R$ 20.000`,
+        desabilitado: sem20 || conBloq,
+        aviso:        sem20 ? 'Saldo insuficiente' : conBloq ? 'Aguarde antes de nova proposta' : null,
+        onPress: () => {
+          if (Math.random() < 0.70) _proposta('intensiva', 20000, DEV_MODE ? 5 : 30);
+          else this._recusaFazendeiro(idx);
+        },
+      },
+      {
+        label:        `🪵 Plantio para manejo florestal (${pctMan}% aceite)`,
+        custoStr:     `R$ 60.000 — gera R$ 5.000/ciclo`,
+        desabilitado: sem60 || conBloq,
+        aviso:        sem60 ? 'Saldo insuficiente' : conBloq ? 'Aguarde antes de nova proposta' : null,
+        onPress: () => {
+          if (Math.random() < 0.45) _proposta('manejo', 60000, DEV_MODE ? 8 : 45);
+          else this._recusaFazendeiro(idx);
+        },
+      },
+    ];
+
+    if (verde && temPSA) {
+      acoes.push({
+        label:        `🌳 Reflorestamento com nativas (${pctRef}% aceite)`,
+        custoStr:     `Objetivo final — sem custo direto`,
+        desabilitado: conBloq,
+        aviso:        conBloq ? 'Aguarde antes de nova proposta' : null,
+        onPress: () => {
+          if (Math.random() < 0.65) _proposta('reflorestamento', 0, DEV_MODE ? 10 : 75);
+          else this._recusaFazendeiro(idx);
+        },
+      });
+    }
+
+    this._abrirMenu(idx, {
+      titulo:      `🐄 ${pf?.nomePropio ?? 'Fazendeiro'} — Propostas`,
+      descricao:   pf?.nome ?? 'Pecuária / Soja',
+      tituloColor: '#C8A951',
+      acoes,
+    });
+  }
+
+  _recusaFazendeiro(idx) {
+    const hex = this.hexagonos[idx];
+    hex.contatoBloqueado = true;
+    const dur = DEV_MODE ? 8000 : 45000;
+    this.time.delayedCall(dur, () => { hex.contatoBloqueado = false; });
+    this._mostrarToast('O fazendeiro não aceitou a proposta. Tente novamente em breve.');
+  }
+
+  // -------------------------------------------------------------------------
+  // SAF — menu pós-conversão
+  // -------------------------------------------------------------------------
+  _menuSAF(idx) {
+    const hex    = this.hexagonos[idx];
+    const temPSA = estadoJogo.psaAtivo;
+    const verde  = hex.semaforoPecuaria === 'verde';
+    const sem0   = false; // reflorestamento sem custo direto
+
+    const acoes = [{
+      label:    '📊 Ver produção',
+      custoStr: `Gerando R$ ${hex.receitaSAF.toLocaleString('pt-BR')}/ciclo`,
+      desabilitado: true,
+      aviso: null,
+      onPress: () => {},
+    }];
+
+    if (verde && temPSA) {
+      acoes.push({
+        label:        '🌳 Reflorestamento com espécies nativas',
+        custoStr:     'Objetivo final — sem custo adicional',
+        desabilitado: false, aviso: null,
+        onPress: () => {
+          this._fecharMenu();
+          this.selectedIdx = -1; this._desenharSelecao();
+          const dur = DEV_MODE ? 10 : 75;
+          this._iniciarTimer(idx, dur, () => {
+            this._mudarEstadoHex(idx, 'floresta_pioneira');
+            this._mostrarToast('🌳 Reflorestamento concluído! Área transformada em floresta nativa.');
+          }, 0x52b788);
+        },
+      });
+    } else if (!temPSA) {
+      acoes.push({
+        label: '🌳 Reflorestamento (requer PSA ativo)', custoStr: '',
+        desabilitado: true, aviso: 'Ative o PSA para desbloquear esta opção.', onPress: () => {},
+      });
+    }
+
+    this._abrirMenu(idx, {
+      titulo:    '🌾 Sistema Agroflorestal',
+      descricao: DESCRICOES['saf'],
+      acoes,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Pecuária — expansão do pasto
+  // -------------------------------------------------------------------------
+  _iniciarExpansoesPastos() {
+    this.hexagonos.forEach((hex, idx) => {
+      if (hex.tipo === 'pecuaria') this._iniciarExpansaoPasto(idx);
+    });
+  }
+
+  _iniciarExpansaoPasto(idx) {
+    const hex = this.hexagonos[idx];
+    if (hex.expansaoTimer) { hex.expansaoTimer.remove(); hex.expansaoTimer = null; }
+    if (hex.semaforoPecuaria !== 'vermelho') return;
+    const dur = DEV_MODE ? 20000 : 90000;
+    hex.expansaoTimer = this.time.delayedCall(dur, () => {
+      if (hex.tipo !== 'pecuaria' || hex.semaforoPecuaria !== 'vermelho') return;
+      this._mostrarNotificacaoPecuaria('⚠️ O pasto está se expandindo! Inicie contato em 30s.');
+      this.time.delayedCall(DEV_MODE ? 8000 : 30000, () => {
+        if (hex.tipo !== 'pecuaria' || hex.semaforoPecuaria !== 'vermelho') return;
+        const candidatos = this._vizinhosHex(idx).filter(vi => {
+          const t = this.hexagonos[vi].tipo;
+          return t === 'solo' || t === 'solo_preparado' || t === 'floresta_pioneira';
+        });
+        if (candidatos.length > 0) {
+          const alvoIdx = candidatos[Math.floor(Math.random() * candidatos.length)];
+          this._expandirPasto(alvoIdx);
+          this._mostrarNotificacaoPecuaria('🐄 O pasto se expandiu para uma nova área!');
+        }
+      });
+    });
+  }
+
+  _expandirPasto(idx) {
+    const hex = this.hexagonos[idx];
+    const p = PERFIS_FAZENDEIRO[Math.floor(Math.random() * PERFIS_FAZENDEIRO.length)];
+    const nomeP = NOMES_FAZENDEIROS[Math.floor(Math.random() * NOMES_FAZENDEIROS.length)];
+    hex.semaforoPecuaria = 'vermelho';
+    hex.perfilFazendeiro = { ...p, nomePropio: nomeP, idade: 35 + Math.floor(Math.random() * 34) };
+    hex.bonusContatoPec  = 0;
+    hex.contatoBloqueado = false;
+    hex.parceiriaPec     = null;
+    hex.receitaSAF       = 0;
+    hex.expansaoTimer    = null;
+    this._mudarEstadoHex(idx, 'pecuaria');
+    this._iniciarExpansaoPasto(idx);
+  }
+
+  _mostrarNotificacaoPecuaria(msg) {
+    const { width } = this.scale;
+    const H = 36;
+    const bgG = this.add.graphics().setDepth(25);
+    bgG.fillStyle(0x3a2a00, 1);
+    bgG.fillRect(0, 70, width, H);
+    const txt = this.add.text(width / 2, 70 + H / 2, msg, {
+      fontSize: '13px', color: '#C8A951',
+      fontFamily: 'Inter, sans-serif',
+    }).setOrigin(0.5).setDepth(25);
+    this.tweens.add({
+      targets: [bgG, txt], alpha: 0, delay: 3000, duration: 600,
+      onComplete: () => { bgG.destroy(); txt.destroy(); },
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Pecuária — cluster de SAFs e receita passiva
+  // -------------------------------------------------------------------------
+  _verificarClusterSAF(origemIdx) {
+    const vizinhosSAF = this._vizinhosHex(origemIdx).filter(vi => this.hexagonos[vi].tipo === 'saf');
+    if (vizinhosSAF.length < 2) return;
+    const hex = this.hexagonos[origemIdx];
+    if (hex.clusterBonus) return; // já contado
+    hex.clusterBonus = true;
+    estadoJogo.receitaPassiva += 20000;
+    this._mostrarNotificacaoPecuaria('🌾 Cluster de SAFs formado! +R$ 20.000/ciclo automático.');
+    // Fazendeiros vizinhos ficam mais receptivos
+    this._vizinhosHex(origemIdx).forEach(vi => {
+      if (this.hexagonos[vi].tipo === 'pecuaria')
+        this.hexagonos[vi].bonusContatoPec = Math.min(0.40, this.hexagonos[vi].bonusContatoPec + 0.20);
+    });
+  }
+
+  _cicloReceitaSAF() {
+    const dur = DEV_MODE ? 15000 : 60000;
+    this.time.addEvent({
+      delay: dur, loop: true,
+      callback: () => {
+        let total = estadoJogo.receitaPassiva;
+        this.hexagonos.forEach(hex => {
+          if (hex.receitaSAF > 0) {
+            total += hex.receitaSAF;
+            this._mostrarTextoFlutuante(hex.cx, hex.cy - 40,
+              `+R$ ${hex.receitaSAF.toLocaleString('pt-BR')}`, '#C8A951');
+          }
+        });
+        if (total > 0) {
+          estadoJogo.dinheiro += total;
+          this.atualizarPainel();
+        }
+      },
+    });
   }
 
   // -------------------------------------------------------------------------
