@@ -84,12 +84,31 @@ function addSubtitulo(scene, cx, cy, txt) {
 }
 
 // ---------------------------------------------------------------------------
+// Modo dev — detecta ?dev=1 na URL
+// ---------------------------------------------------------------------------
+const DEV_MODE = new URLSearchParams(window.location.search).get('dev') === '1';
+
+function ativarDevMode() {
+  dadosJogo.nome        = 'Dev';
+  dadosJogo.ong         = 'ONG Teste';
+  dadosJogo.dificuldade = 'medio';
+  dadosJogo.saldo       = 1000000;
+  estadoJogo.dinheiro   = 1000000;
+}
+
+// ---------------------------------------------------------------------------
 // TelaInicial
 // ---------------------------------------------------------------------------
 class TelaInicial extends Phaser.Scene {
   constructor() { super({ key: 'TelaInicial' }); }
 
   create() {
+    if (DEV_MODE) {
+      ativarDevMode();
+      this.scene.start('Jogo');
+      return;
+    }
+
     const { width, height } = this.scale;
     addFundo(this);
 
@@ -419,25 +438,154 @@ function gerarTipos(dificuldade) {
 }
 
 // ---------------------------------------------------------------------------
-// Jogo — mapa hexagonal (pointy-top) com tipos de terreno
+// Estado global do jogo
+// ---------------------------------------------------------------------------
+const estadoJogo = {
+  dinheiro: 0,
+  agua:     null,
+  equipe:   [],
+  mudas:    0,
+  energia:  null,
+  climax:   0,
+};
+
+// ---------------------------------------------------------------------------
+// Jogo — mapa hexagonal + painel de recursos
 // ---------------------------------------------------------------------------
 class Jogo extends Phaser.Scene {
   constructor() { super({ key: 'Jogo' }); }
 
   create() {
     const { width, height } = this.scale;
+
+    // Inicializa estado com saldo da dificuldade
+    estadoJogo.dinheiro = dadosJogo.saldo;
+    estadoJogo.agua     = null;
+    estadoJogo.equipe   = [];
+    estadoJogo.mudas    = 0;
+    estadoJogo.energia  = null;
+    estadoJogo.climax   = 0;
+
     addFundo(this);
 
+    // -----------------------------------------------------------------------
+    // Painel HUD — topo, 70px
+    // -----------------------------------------------------------------------
+    const HUD_H = 70;
+
+    // Fundo do painel
+    const hudG = this.add.graphics();
+    hudG.fillStyle(0x0d2818, 1);
+    hudG.fillRect(0, 0, width, HUD_H);
+    hudG.lineStyle(1, 0x2d6a4f, 1);
+    hudG.lineBetween(0, HUD_H, width, HUD_H);
+
+    // — Lado esquerdo: identidade da ONG —
+    this.add.text(20, 14, dadosJogo.ong, {
+      fontSize: '14px',
+      color: '#52b788',
+      fontFamily: 'Inter, sans-serif',
+      fontStyle: 'bold',
+    });
+    this.add.text(20, 34, dadosJogo.nome, {
+      fontSize: '12px',
+      color: '#74c69d',
+      fontFamily: 'Inter, sans-serif',
+    });
+
+    // — Centro: blocos de recursos —
+    const RECURSOS = [
+      { icone: '💰', labelKey: 'dinheiro', label: 'Dinheiro',  cor: '#d8f3dc' },
+      { icone: '💧', labelKey: 'agua',     label: 'Água',       cor: '#4A90D9' },
+      { icone: '👥', labelKey: 'equipe',   label: 'Equipe',     cor: '#74c69d' },
+      { icone: '🌱', labelKey: 'mudas',    label: 'Mudas',      cor: '#74c69d' },
+      { icone: '⚡', labelKey: 'energia',  label: 'Energia',    cor: '#C8A951' },
+    ];
+
+    const BLOCO_W = 160;
+    const BLOCO_H = 50;
+    const BLOCO_GAP = 8;
+    const totalBlocos = RECURSOS.length * BLOCO_W + (RECURSOS.length - 1) * BLOCO_GAP;
+    const blocoInicioX = (width - totalBlocos) / 2;
+    const blocoY = (HUD_H - BLOCO_H) / 2;
+
+    this.hudTextos = {};
+
+    RECURSOS.forEach(({ icone, labelKey, label, cor }, i) => {
+      const bx = blocoInicioX + i * (BLOCO_W + BLOCO_GAP);
+
+      // Fundo do bloco
+      const bg = this.add.graphics();
+      bg.fillStyle(0x1b4332, 1);
+      bg.fillRoundedRect(bx, blocoY, BLOCO_W, BLOCO_H, 6);
+
+      // Ícone
+      this.add.text(bx + 12, blocoY + BLOCO_H / 2, icone, {
+        fontSize: '18px',
+        fontFamily: 'sans-serif',
+      }).setOrigin(0, 0.5);
+
+      // Valor (dinâmico)
+      const valorInicial = this._formatarRecurso(labelKey);
+      const txtValor = this.add.text(bx + BLOCO_W - 10, blocoY + 14, valorInicial, {
+        fontSize: '18px',
+        color: cor,
+        fontFamily: 'Inter, sans-serif',
+        fontStyle: 'bold',
+      }).setOrigin(1, 0.5);
+
+      // Label
+      this.add.text(bx + BLOCO_W - 10, blocoY + 36, label.toUpperCase(), {
+        fontSize: '11px',
+        color: '#74c69d',
+        fontFamily: 'Inter, sans-serif',
+        letterSpacing: 1,
+      }).setOrigin(1, 0.5);
+
+      this.hudTextos[labelKey] = txtValor;
+    });
+
+    // — Lado direito: barra de progresso Floresta Clímax —
+    const barW  = 200;
+    const barH  = 10;
+    const barX  = width - barW - 20;
+    const barY  = 20;
+
+    this.add.text(barX + barW, barY - 4, 'FLORESTA CLÍMAX', {
+      fontSize: '11px',
+      color: '#74c69d',
+      fontFamily: 'Inter, sans-serif',
+      letterSpacing: 1,
+    }).setOrigin(1, 1);
+
+    // Fundo da barra
+    const barG = this.add.graphics();
+    barG.fillStyle(0x1b4332, 1);
+    barG.fillRoundedRect(barX, barY, barW, barH, 4);
+
+    // Barra de progresso (começa vazia)
+    this.barraClimax = this.add.graphics();
+    this._atualizarBarra();
+
+    // Percentual
+    this.txtClimax = this.add.text(barX + barW / 2, barY + barH + 8, '0%', {
+      fontSize: '11px',
+      color: '#74c69d',
+      fontFamily: 'Inter, sans-serif',
+    }).setOrigin(0.5, 0);
+
+    // -----------------------------------------------------------------------
+    // Mapa hexagonal — empurrado 70px para baixo
+    // -----------------------------------------------------------------------
     const R       = 36;
     const COLS    = 6;
-    const ROWS    = 5;                    // 6×5 = 30 hexágonos
-    const colStep = R * Math.sqrt(3);    // ~62.4 px — espaçamento horizontal
-    const rowStep = R * 1.5;             //  54 px — espaçamento vertical
+    const ROWS    = 5;
+    const colStep = R * Math.sqrt(3);
+    const rowStep = R * 1.5;
 
     const tipos = gerarTipos(dadosJogo.dificuldade);
     this.hexagonos = [];
 
-    // Centros da grade (pointy-top, linhas ímpares deslocadas)
     const hexes = [];
     for (let row = 0; row < ROWS; row++) {
       for (let col = 0; col < COLS; col++) {
@@ -450,14 +598,14 @@ class Jogo extends Phaser.Scene {
       }
     }
 
-    // Bounding box → offset de centralização
     const xs    = hexes.map(h => h.x);
     const ys    = hexes.map(h => h.y);
     const halfW = R * Math.sqrt(3) / 2;
     const gridW = Math.max(...xs) - Math.min(...xs) + R * Math.sqrt(3);
     const gridH = Math.max(...ys) - Math.min(...ys) + R * 2;
     const offX  = (width  - gridW) / 2 + halfW - Math.min(...xs);
-    const offY  = (height - gridH) / 2 + R     - Math.min(...ys);
+    // ↓ +HUD_H desloca o mapa abaixo do painel
+    const offY  = HUD_H + (height - HUD_H - gridH) / 2 + R - Math.min(...ys);
 
     const g = this.add.graphics();
 
@@ -467,13 +615,11 @@ class Jogo extends Phaser.Scene {
       const cx    = x + offX;
       const cy    = y + offY;
 
-      // Vértices pointy-top: 30°, 90°, 150°, 210°, 270°, 330°
       const pts = Array.from({ length: 6 }, (_, i) => {
         const a = Math.PI / 6 + (Math.PI / 3) * i;
         return { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) };
       });
 
-      // Preenchimento com cor do tipo
       g.fillStyle(info.cor, 1);
       g.beginPath();
       g.moveTo(pts[0].x, pts[0].y);
@@ -481,7 +627,6 @@ class Jogo extends Phaser.Scene {
       g.closePath();
       g.fillPath();
 
-      // Borda
       g.lineStyle(2, 0x2d6a4f, 1);
       g.beginPath();
       g.moveTo(pts[0].x, pts[0].y);
@@ -489,15 +634,51 @@ class Jogo extends Phaser.Scene {
       g.closePath();
       g.strokePath();
 
-      // Emoji centralizado
       this.add.text(cx, cy, info.emoji, {
         fontSize: '20px',
         fontFamily: 'sans-serif',
       }).setOrigin(0.5);
 
-      // Armazena dados para uso futuro
       this.hexagonos.push({ tipo, info, row, col, cx, cy });
     });
+  }
+
+  // Formata o valor de cada recurso para exibição
+  _formatarRecurso(key) {
+    const v = estadoJogo[key];
+    if (key === 'dinheiro') {
+      return `R$ ${v.toLocaleString('pt-BR')}`;
+    }
+    if (key === 'equipe') {
+      return `${v.length} membro${v.length !== 1 ? 's' : ''}`;
+    }
+    if (v === null || v === undefined) return '—';
+    return String(v);
+  }
+
+  // Atualiza um bloco do HUD (chamar sempre que estadoJogo mudar)
+  atualizarHUD(key) {
+    if (this.hudTextos[key]) {
+      this.hudTextos[key].setText(this._formatarRecurso(key));
+    }
+    if (key === 'climax') this._atualizarBarra();
+  }
+
+  _atualizarBarra() {
+    const barW  = 200;
+    const barH  = 10;
+    const barX  = this.scale.width - barW - 20;
+    const barY  = 20;
+    const pct   = Math.min(estadoJogo.climax / 100, 1);
+
+    this.barraClimax.clear();
+    if (pct > 0) {
+      this.barraClimax.fillStyle(0x52b788, 1);
+      this.barraClimax.fillRoundedRect(barX, barY, barW * pct, barH, 4);
+    }
+    if (this.txtClimax) {
+      this.txtClimax.setText(`${Math.round(estadoJogo.climax)}%`);
+    }
   }
 }
 
