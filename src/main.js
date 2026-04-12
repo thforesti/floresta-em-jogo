@@ -450,7 +450,31 @@ const estadoJogo = {
 };
 
 // ---------------------------------------------------------------------------
-// Jogo — mapa hexagonal + painel de recursos
+// Ações e descrições por tipo de terreno
+// ---------------------------------------------------------------------------
+const ACOES = {
+  solo:     [{ label: 'Preparar a terra',          custo: 15000 }],
+  garimpo:  [{ label: 'Negociar saída',            custo: 0     }],
+  nascente: [{ label: 'Bioengenharia das margens', custo: 45000 },
+             { label: 'Plantar mudas nativas',     custo: 10000 }],
+  queimada: [{ label: 'Apagar incêndio',           custo: 30000 }],
+  indigena: [{ label: 'Iniciar diálogo',           custo: 0     }],
+  pecuaria: [{ label: 'Iniciar contato',           custo: 0     }],
+  floresta: [{ label: 'Ver detalhes',              custo: 0     }],
+};
+
+const DESCRICOES = {
+  solo:     'Terra erodida e improdutiva.',
+  garimpo:  'Área com extração ilegal de minérios.',
+  nascente: 'Fonte hídrica em estado crítico.',
+  queimada: 'Área devastada por incêndio.',
+  indigena: 'Território de comunidade indígena.',
+  pecuaria: 'Área de pastagem ou cultivo extensivo.',
+  floresta: 'Trecho de floresta nativa preservada.',
+};
+
+// ---------------------------------------------------------------------------
+// Jogo — mapa hexagonal + painel de recursos + interação
 // ---------------------------------------------------------------------------
 class Jogo extends Phaser.Scene {
   constructor() { super({ key: 'Jogo' }); }
@@ -458,7 +482,7 @@ class Jogo extends Phaser.Scene {
   create() {
     const { width, height } = this.scale;
 
-    // Inicializa estado com saldo da dificuldade
+    // Inicializa estado
     estadoJogo.dinheiro = dadosJogo.saldo;
     estadoJogo.agua     = null;
     estadoJogo.equipe   = [];
@@ -473,113 +497,75 @@ class Jogo extends Phaser.Scene {
     // -----------------------------------------------------------------------
     const HUD_H = 70;
 
-    // Fundo do painel
     const hudG = this.add.graphics();
     hudG.fillStyle(0x0d2818, 1);
     hudG.fillRect(0, 0, width, HUD_H);
     hudG.lineStyle(1, 0x2d6a4f, 1);
     hudG.lineBetween(0, HUD_H, width, HUD_H);
 
-    // — Lado esquerdo: identidade da ONG —
     this.add.text(20, 14, dadosJogo.ong, {
-      fontSize: '14px',
-      color: '#52b788',
-      fontFamily: 'Inter, sans-serif',
-      fontStyle: 'bold',
+      fontSize: '14px', color: '#52b788',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
     });
     this.add.text(20, 34, dadosJogo.nome, {
-      fontSize: '12px',
-      color: '#74c69d',
+      fontSize: '12px', color: '#74c69d',
       fontFamily: 'Inter, sans-serif',
     });
 
-    // — Centro: blocos de recursos —
     const RECURSOS = [
-      { icone: '💰', labelKey: 'dinheiro', label: 'Dinheiro',  cor: '#d8f3dc' },
-      { icone: '💧', labelKey: 'agua',     label: 'Água',       cor: '#4A90D9' },
-      { icone: '👥', labelKey: 'equipe',   label: 'Equipe',     cor: '#74c69d' },
-      { icone: '🌱', labelKey: 'mudas',    label: 'Mudas',      cor: '#74c69d' },
-      { icone: '⚡', labelKey: 'energia',  label: 'Energia',    cor: '#C8A951' },
+      { icone: '💰', labelKey: 'dinheiro', label: 'Dinheiro', cor: '#d8f3dc' },
+      { icone: '💧', labelKey: 'agua',     label: 'Água',      cor: '#4A90D9' },
+      { icone: '👥', labelKey: 'equipe',   label: 'Equipe',    cor: '#74c69d' },
+      { icone: '🌱', labelKey: 'mudas',    label: 'Mudas',     cor: '#74c69d' },
+      { icone: '⚡', labelKey: 'energia',  label: 'Energia',   cor: '#C8A951' },
     ];
 
-    const BLOCO_W = 160;
-    const BLOCO_H = 50;
-    const BLOCO_GAP = 8;
-    const totalBlocos = RECURSOS.length * BLOCO_W + (RECURSOS.length - 1) * BLOCO_GAP;
-    const blocoInicioX = (width - totalBlocos) / 2;
+    const BLOCO_W = 160, BLOCO_H = 50, BLOCO_GAP = 8;
+    const blocoInicioX = (width - (RECURSOS.length * BLOCO_W + (RECURSOS.length - 1) * BLOCO_GAP)) / 2;
     const blocoY = (HUD_H - BLOCO_H) / 2;
 
     this.hudTextos = {};
 
     RECURSOS.forEach(({ icone, labelKey, label, cor }, i) => {
       const bx = blocoInicioX + i * (BLOCO_W + BLOCO_GAP);
-
-      // Fundo do bloco
       const bg = this.add.graphics();
       bg.fillStyle(0x1b4332, 1);
       bg.fillRoundedRect(bx, blocoY, BLOCO_W, BLOCO_H, 6);
-
-      // Ícone
       this.add.text(bx + 12, blocoY + BLOCO_H / 2, icone, {
-        fontSize: '18px',
-        fontFamily: 'sans-serif',
+        fontSize: '18px', fontFamily: 'sans-serif',
       }).setOrigin(0, 0.5);
-
-      // Valor (dinâmico)
-      const valorInicial = this._formatarRecurso(labelKey);
-      const txtValor = this.add.text(bx + BLOCO_W - 10, blocoY + 14, valorInicial, {
-        fontSize: '18px',
-        color: cor,
-        fontFamily: 'Inter, sans-serif',
-        fontStyle: 'bold',
+      const txtValor = this.add.text(bx + BLOCO_W - 10, blocoY + 14,
+        this._formatarRecurso(labelKey), {
+        fontSize: '18px', color: cor,
+        fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
       }).setOrigin(1, 0.5);
-
-      // Label
       this.add.text(bx + BLOCO_W - 10, blocoY + 36, label.toUpperCase(), {
-        fontSize: '11px',
-        color: '#74c69d',
-        fontFamily: 'Inter, sans-serif',
-        letterSpacing: 1,
+        fontSize: '11px', color: '#74c69d',
+        fontFamily: 'Inter, sans-serif', letterSpacing: 1,
       }).setOrigin(1, 0.5);
-
       this.hudTextos[labelKey] = txtValor;
     });
 
-    // — Lado direito: barra de progresso Floresta Clímax —
-    const barW  = 200;
-    const barH  = 10;
-    const barX  = width - barW - 20;
-    const barY  = 20;
-
+    const barW = 200, barH = 10;
+    const barX = width - barW - 20, barY = 20;
     this.add.text(barX + barW, barY - 4, 'FLORESTA CLÍMAX', {
-      fontSize: '11px',
-      color: '#74c69d',
-      fontFamily: 'Inter, sans-serif',
-      letterSpacing: 1,
+      fontSize: '11px', color: '#74c69d',
+      fontFamily: 'Inter, sans-serif', letterSpacing: 1,
     }).setOrigin(1, 1);
-
-    // Fundo da barra
     const barG = this.add.graphics();
     barG.fillStyle(0x1b4332, 1);
     barG.fillRoundedRect(barX, barY, barW, barH, 4);
-
-    // Barra de progresso (começa vazia)
     this.barraClimax = this.add.graphics();
     this._atualizarBarra();
-
-    // Percentual
     this.txtClimax = this.add.text(barX + barW / 2, barY + barH + 8, '0%', {
-      fontSize: '11px',
-      color: '#74c69d',
+      fontSize: '11px', color: '#74c69d',
       fontFamily: 'Inter, sans-serif',
     }).setOrigin(0.5, 0);
 
     // -----------------------------------------------------------------------
-    // Mapa hexagonal — empurrado 70px para baixo
+    // Mapa hexagonal
     // -----------------------------------------------------------------------
-    const R       = 36;
-    const COLS    = 6;
-    const ROWS    = 5;
+    const R = 36, COLS = 6, ROWS = 5;
     const colStep = R * Math.sqrt(3);
     const rowStep = R * 1.5;
 
@@ -591,9 +577,7 @@ class Jogo extends Phaser.Scene {
       for (let col = 0; col < COLS; col++) {
         hexes.push({
           x: col * colStep + (row % 2 === 1 ? colStep / 2 : 0),
-          y: row * rowStep,
-          row,
-          col,
+          y: row * rowStep, row, col,
         });
       }
     }
@@ -604,81 +588,269 @@ class Jogo extends Phaser.Scene {
     const gridW = Math.max(...xs) - Math.min(...xs) + R * Math.sqrt(3);
     const gridH = Math.max(...ys) - Math.min(...ys) + R * 2;
     const offX  = (width  - gridW) / 2 + halfW - Math.min(...xs);
-    // ↓ +HUD_H desloca o mapa abaixo do painel
     const offY  = HUD_H + (height - HUD_H - gridH) / 2 + R - Math.min(...ys);
 
-    const g = this.add.graphics();
+    // Camadas de desenho (ordem de profundidade)
+    const fillG  = this.add.graphics();          // fills estáticos
+    this.hoverG  = this.add.graphics().setDepth(1); // overlay de hover
+    this.selectG = this.add.graphics().setDepth(2); // borda de seleção
 
     hexes.forEach(({ x, y, row, col }, idx) => {
-      const tipo  = tipos[idx];
-      const info  = TIPOS[tipo];
-      const cx    = x + offX;
-      const cy    = y + offY;
+      const tipo = tipos[idx];
+      const info = TIPOS[tipo];
+      const cx   = x + offX;
+      const cy   = y + offY;
 
       const pts = Array.from({ length: 6 }, (_, i) => {
         const a = Math.PI / 6 + (Math.PI / 3) * i;
         return { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) };
       });
 
-      g.fillStyle(info.cor, 1);
-      g.beginPath();
-      g.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < 6; i++) g.lineTo(pts[i].x, pts[i].y);
-      g.closePath();
-      g.fillPath();
+      // Desenha fill + borda estática
+      fillG.fillStyle(info.cor, 1);
+      fillG.beginPath();
+      fillG.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < 6; i++) fillG.lineTo(pts[i].x, pts[i].y);
+      fillG.closePath();
+      fillG.fillPath();
 
-      g.lineStyle(2, 0x2d6a4f, 1);
-      g.beginPath();
-      g.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < 6; i++) g.lineTo(pts[i].x, pts[i].y);
-      g.closePath();
-      g.strokePath();
+      fillG.lineStyle(2, 0x2d6a4f, 1);
+      fillG.beginPath();
+      fillG.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < 6; i++) fillG.lineTo(pts[i].x, pts[i].y);
+      fillG.closePath();
+      fillG.strokePath();
 
+      // Emoji (depth 1 para ficar acima do hoverG)
       this.add.text(cx, cy, info.emoji, {
-        fontSize: '20px',
-        fontFamily: 'sans-serif',
-      }).setOrigin(0.5);
+        fontSize: '20px', fontFamily: 'sans-serif',
+      }).setOrigin(0.5).setDepth(3);
 
-      this.hexagonos.push({ tipo, info, row, col, cx, cy });
+      // Polígono de hit (coordenadas absolutas)
+      const polygon = new Phaser.Geom.Polygon(pts.flatMap(p => [p.x, p.y]));
+
+      this.hexagonos.push({ tipo, info, row, col, cx, cy, pts, polygon });
     });
+
+    // -----------------------------------------------------------------------
+    // Estado de interação
+    // -----------------------------------------------------------------------
+    this.hoveredIdx  = -1;
+    this.selectedIdx = -1;
+    this.menuObjs    = [];
+    this.menuBounds  = null;
+
+    this.input.on('pointermove', this._onMove,  this);
+    this.input.on('pointerdown', this._onClick, this);
   }
 
-  // Formata o valor de cada recurso para exibição
+  // -------------------------------------------------------------------------
+  // Handlers de input
+  // -------------------------------------------------------------------------
+  _onMove(pointer) {
+    const idx = this.hexagonos.findIndex(h =>
+      Phaser.Geom.Polygon.Contains(h.polygon, pointer.x, pointer.y));
+    if (idx !== this.hoveredIdx) {
+      this.hoveredIdx = idx;
+      this._desenharHover();
+    }
+  }
+
+  _onClick(pointer) {
+    // Ignora cliques dentro do menu aberto
+    if (this.menuBounds) {
+      const { x, y, w, h } = this.menuBounds;
+      if (pointer.x >= x && pointer.x <= x + w &&
+          pointer.y >= y && pointer.y <= y + h) return;
+    }
+
+    const idx = this.hexagonos.findIndex(h =>
+      Phaser.Geom.Polygon.Contains(h.polygon, pointer.x, pointer.y));
+
+    if (idx >= 0) {
+      this.selectedIdx = idx;
+      this._desenharSelecao();
+      this._abrirMenu(idx);
+    } else {
+      this.selectedIdx = -1;
+      this._desenharSelecao();
+      this._fecharMenu();
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Feedback visual
+  // -------------------------------------------------------------------------
+  _desenharHover() {
+    this.hoverG.clear();
+    if (this.hoveredIdx < 0) return;
+    const { pts } = this.hexagonos[this.hoveredIdx];
+    this.hoverG.fillStyle(0xffffff, 0.12);
+    this.hoverG.beginPath();
+    this.hoverG.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < 6; i++) this.hoverG.lineTo(pts[i].x, pts[i].y);
+    this.hoverG.closePath();
+    this.hoverG.fillPath();
+  }
+
+  _desenharSelecao() {
+    this.selectG.clear();
+    if (this.selectedIdx < 0) return;
+    const { pts } = this.hexagonos[this.selectedIdx];
+    this.selectG.lineStyle(3, 0xffffff, 1);
+    this.selectG.beginPath();
+    this.selectG.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < 6; i++) this.selectG.lineTo(pts[i].x, pts[i].y);
+    this.selectG.closePath();
+    this.selectG.strokePath();
+  }
+
+  // -------------------------------------------------------------------------
+  // Menu flutuante
+  // -------------------------------------------------------------------------
+  _abrirMenu(idx) {
+    this._fecharMenu();
+
+    const hex    = this.hexagonos[idx];
+    const acoes  = ACOES[hex.tipo]   ?? [];
+    const desc   = DESCRICOES[hex.tipo] ?? '';
+
+    const MENU_W     = 260;
+    const MENU_PAD   = 16;
+    const TITLE_H    = 68;   // área título + subtítulo
+    const ACTION_H   = 38;
+    const ACTION_GAP = 8;
+    const BOT_PAD    = 14;
+    const DEPTH      = 10;
+
+    const menuH = TITLE_H + acoes.length * (ACTION_H + ACTION_GAP) - ACTION_GAP + BOT_PAD;
+
+    // Posição: tenta direita, depois esquerda
+    let mx = hex.cx + 44;
+    if (mx + MENU_W > this.scale.width - 8) mx = hex.cx - 44 - MENU_W;
+
+    let my = hex.cy - menuH / 2;
+    if (my < 78)                              my = 78;
+    if (my + menuH > this.scale.height - 8)  my = this.scale.height - 8 - menuH;
+
+    this.menuBounds = { x: mx, y: my, w: MENU_W, h: menuH };
+    const objs = [];
+
+    // Fundo
+    const bgG = this.add.graphics().setDepth(DEPTH);
+    bgG.fillStyle(0x0d2818, 1);
+    bgG.fillRoundedRect(mx, my, MENU_W, menuH, 8);
+    bgG.lineStyle(1, 0x2d6a4f, 1);
+    bgG.strokeRoundedRect(mx, my, MENU_W, menuH, 8);
+    objs.push(bgG);
+
+    // Título do tipo
+    objs.push(this.add.text(mx + MENU_PAD, my + 14, hex.info.label, {
+      fontSize: '16px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+
+    // Descrição
+    objs.push(this.add.text(mx + MENU_PAD, my + 36, desc, {
+      fontSize: '12px', color: '#74c69d',
+      fontFamily: 'Inter, sans-serif',
+      wordWrap: { width: MENU_W - MENU_PAD * 2 - 20 },
+    }).setDepth(DEPTH));
+
+    // Botão fechar (X)
+    const closeTxt = this.add.text(mx + MENU_W - MENU_PAD, my + 14, '✕', {
+      fontSize: '14px', color: '#74c69d',
+      fontFamily: 'Inter, sans-serif',
+    }).setOrigin(1, 0).setDepth(DEPTH).setInteractive({ useHandCursor: true });
+    closeTxt.on('pointerover',  () => closeTxt.setColor('#d8f3dc'));
+    closeTxt.on('pointerout',   () => closeTxt.setColor('#74c69d'));
+    closeTxt.on('pointerdown',  () => {
+      this.selectedIdx = -1;
+      this._desenharSelecao();
+      this._fecharMenu();
+    });
+    objs.push(closeTxt);
+
+    // Divisor
+    const divG = this.add.graphics().setDepth(DEPTH);
+    divG.lineStyle(1, 0x2d6a4f, 0.6);
+    divG.lineBetween(mx + MENU_PAD, my + TITLE_H - 6,
+                     mx + MENU_W - MENU_PAD, my + TITLE_H - 6);
+    objs.push(divG);
+
+    // Botões de ação
+    acoes.forEach(({ label, custo }, i) => {
+      const ay = my + TITLE_H + i * (ACTION_H + ACTION_GAP);
+      const bx = mx + MENU_PAD;
+      const bw = MENU_W - MENU_PAD * 2;
+      const bh = ACTION_H;
+
+      const btnG = this.add.graphics().setDepth(DEPTH);
+      const desenhaBtn = (hover) => {
+        btnG.clear();
+        btnG.fillStyle(hover ? 0x2d6a4f : 0x1b4332, 1);
+        btnG.fillRoundedRect(bx, ay, bw, bh, 6);
+      };
+      desenhaBtn(false);
+      objs.push(btnG);
+
+      objs.push(this.add.text(bx + 10, ay + bh / 2, label, {
+        fontSize: '13px', color: '#d8f3dc',
+        fontFamily: 'Inter, sans-serif',
+      }).setOrigin(0, 0.5).setDepth(DEPTH));
+
+      const custoStr = custo === 0 ? 'Gratuito' : `R$ ${custo.toLocaleString('pt-BR')}`;
+      objs.push(this.add.text(bx + bw - 10, ay + bh / 2, custoStr, {
+        fontSize: '12px', color: '#52b788',
+        fontFamily: 'Inter, sans-serif',
+      }).setOrigin(1, 0.5).setDepth(DEPTH));
+
+      const zone = this.add.zone(bx + bw / 2, ay + bh / 2, bw, bh)
+        .setDepth(DEPTH).setInteractive({ useHandCursor: true });
+      zone.on('pointerover',  () => desenhaBtn(true));
+      zone.on('pointerout',   () => desenhaBtn(false));
+      zone.on('pointerdown',  () => {
+        // placeholder — lógica de execução nas próximas fases
+        console.log(`[Jogo] ação: ${label} | custo: R$${custo} | hex: ${hex.tipo} [${hex.row},${hex.col}]`);
+      });
+      objs.push(zone);
+    });
+
+    this.menuObjs = objs;
+  }
+
+  _fecharMenu() {
+    this.menuObjs.forEach(o => o.destroy());
+    this.menuObjs   = [];
+    this.menuBounds = null;
+  }
+
+  // -------------------------------------------------------------------------
+  // HUD helpers
+  // -------------------------------------------------------------------------
   _formatarRecurso(key) {
     const v = estadoJogo[key];
-    if (key === 'dinheiro') {
-      return `R$ ${v.toLocaleString('pt-BR')}`;
-    }
-    if (key === 'equipe') {
-      return `${v.length} membro${v.length !== 1 ? 's' : ''}`;
-    }
+    if (key === 'dinheiro') return `R$ ${v.toLocaleString('pt-BR')}`;
+    if (key === 'equipe')   return `${v.length} membro${v.length !== 1 ? 's' : ''}`;
     if (v === null || v === undefined) return '—';
     return String(v);
   }
 
-  // Atualiza um bloco do HUD (chamar sempre que estadoJogo mudar)
   atualizarHUD(key) {
-    if (this.hudTextos[key]) {
-      this.hudTextos[key].setText(this._formatarRecurso(key));
-    }
+    if (this.hudTextos[key]) this.hudTextos[key].setText(this._formatarRecurso(key));
     if (key === 'climax') this._atualizarBarra();
   }
 
   _atualizarBarra() {
-    const barW  = 200;
-    const barH  = 10;
-    const barX  = this.scale.width - barW - 20;
-    const barY  = 20;
-    const pct   = Math.min(estadoJogo.climax / 100, 1);
-
+    const barW = 200, barH = 10;
+    const barX = this.scale.width - barW - 20, barY = 20;
+    const pct  = Math.min(estadoJogo.climax / 100, 1);
     this.barraClimax.clear();
     if (pct > 0) {
       this.barraClimax.fillStyle(0x52b788, 1);
       this.barraClimax.fillRoundedRect(barX, barY, barW * pct, barH, 4);
     }
-    if (this.txtClimax) {
-      this.txtClimax.setText(`${Math.round(estadoJogo.climax)}%`);
-    }
+    if (this.txtClimax) this.txtClimax.setText(`${Math.round(estadoJogo.climax)}%`);
   }
 }
 
