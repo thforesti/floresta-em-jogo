@@ -411,7 +411,8 @@ const TIPOS = {
   floresta:          { label: 'Floresta estabelecida', emoji: '🌳', cor: 0x52b788, hex: '#52b788' },
   solo_preparado:       { label: 'Solo Preparado',        emoji: '⛏️',  cor: 0x5C4A1E, hex: '#5C4A1E' },
   floresta_pioneira:    { label: 'Floresta Pioneira',     emoji: '🌿', cor: 0x74c69d, hex: '#74c69d' },
-  garimpo_neutralizado: { label: 'Garimpo Neutralizado',  emoji: '🟫', cor: 0x8B6914, hex: '#8B6914' },
+  garimpo_neutralizado: { label: 'Garimpo Neutralizado',  emoji: '🟫',   cor: 0x8B6914, hex: '#8B6914' },
+  nascente_ativa:       { label: 'Nascente Ativa',        emoji: '💧✨', cor: 0x1a6b8a, hex: '#1a6b8a' },
 };
 
 const DISTRIBUICAO = {
@@ -476,6 +477,7 @@ const DESCRICOES = {
   pecuaria:             'Área de pastagem ou cultivo extensivo.',
   floresta:             'Trecho de floresta nativa preservada.',
   garimpo_neutralizado: 'Área com extração encerrada. Requer fitorremediação.',
+  nascente_ativa:       'Nascente recuperada e produtiva. Gera água por ciclo.',
 };
 
 const PERFIS_GARIMPEIRO = [
@@ -643,12 +645,17 @@ class Jogo extends Phaser.Scene {
       const perfil           = tipo === 'garimpo'
         ? PERFIS_GARIMPEIRO[Math.floor(Math.random() * PERFIS_GARIMPEIRO.length)]
         : null;
-      const bonusNegociacao  = 0;   // aumenta +0.10 a cada tentativa frustrada (R$5k)
-      const vigilancia       = false; // ativada pelo menu pós-neutralização
+      const bonusNegociacao  = 0;
+      const vigilancia       = false;
+      // Nascente: produção de água (L/ciclo), melhorias instaladas
+      const producaoAgua      = 0;
+      const temBomba          = false;
+      const temHidroeletrica  = false;
 
       this.hexagonos.push({
         tipo, info, row, col, cx, cy, pts, polygon, emojiTxt,
         bloqueado: false, perfil, bonusNegociacao, vigilancia,
+        producaoAgua, temBomba, temHidroeletrica,
       });
     });
 
@@ -665,6 +672,7 @@ class Jogo extends Phaser.Scene {
     this.input.on('pointerdown', this._onClick, this);
 
     this._cicloReocupacao();
+    this._cicloAgua();
   }
 
   // -------------------------------------------------------------------------
@@ -703,8 +711,10 @@ class Jogo extends Phaser.Scene {
       switch (hex.tipo) {
         case 'solo':                 this._menuSoloDegradado(idx);     break;
         case 'solo_preparado':       this._menuSoloPreparado(idx);     break;
-        case 'garimpo':              this._cardGarimpeiro(idx);        break;
+        case 'garimpo':              this._cardGarimpeiro(idx);          break;
         case 'garimpo_neutralizado': this._menuGarimpoNeutralizado(idx); break;
+        case 'nascente':             this._menuNascenteDegradada(idx);   break;
+        case 'nascente_ativa':       this._menuNascenteAtiva(idx);       break;
         default:                     this._abrirMenu(idx);
       }
     } else {
@@ -768,7 +778,7 @@ class Jogo extends Phaser.Scene {
   // -------------------------------------------------------------------------
   // Timer visual
   // -------------------------------------------------------------------------
-  _iniciarTimer(idx, durSeg, onComplete) {
+  _iniciarTimer(idx, durSeg, onComplete, cor = 0x52b788) {
     const hex     = this.hexagonos[idx];
     hex.bloqueado = true;
 
@@ -791,7 +801,7 @@ class Jogo extends Phaser.Scene {
         if (concluido) return;
         const pct = Math.max(0, 1 - (this.time.now - startTime) / totalMs);
         barG.clear();
-        barG.fillStyle(0x52b788, 1);
+        barG.fillStyle(cor, 1);
         if (pct > 0) barG.fillRoundedRect(bx, by, BAR_W * pct, BAR_H, 3);
       },
     });
@@ -1511,6 +1521,359 @@ class Jogo extends Phaser.Scene {
   }
 
   // -------------------------------------------------------------------------
+  // Nascente degradada — menu com armadilha educativa
+  // -------------------------------------------------------------------------
+  _menuNascenteDegradada(idx) {
+    const hex      = this.hexagonos[idx];
+    const sem10    = estadoJogo.dinheiro < 10000;
+    const sem45    = estadoJogo.dinheiro < 45000;
+
+    this._abrirMenu(idx, {
+      titulo:    'Nascente Degradada',
+      descricao: DESCRICOES['nascente'],
+      acoes: [
+        {
+          label:        '🌱 Plantar mudas nativas',
+          custoStr:     'R$ 10.000',
+          desabilitado: sem10,
+          aviso:        sem10 ? 'Saldo insuficiente' : null,
+          onPress: () => {
+            estadoJogo.dinheiro -= 10000;
+            this.atualizarPainel();
+            this._fecharMenu();
+            this.selectedIdx = -1;
+            this._desenharSelecao();
+            this._cardErroPlantioNascente(idx);
+          },
+        },
+        {
+          label:        '⚙️ Bioengenharia das margens',
+          custoStr:     'R$ 45.000',
+          desabilitado: sem45,
+          aviso:        sem45 ? 'Saldo insuficiente' : null,
+          onPress: () => {
+            estadoJogo.dinheiro -= 45000;
+            this.atualizarPainel();
+            this._fecharMenu();
+            this.selectedIdx = -1;
+            this._desenharSelecao();
+
+            const dur = DEV_MODE ? 10 : 75;
+            this._iniciarTimer(idx, dur, () => {
+              this._menuNascenteEtapa2(idx);
+            }, 0x4A90D9);
+          },
+        },
+      ],
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Nascente — card educativo de erro no plantio
+  // -------------------------------------------------------------------------
+  _cardErroPlantioNascente(idx) {
+    this._fecharCard();
+
+    const { width, height } = this.scale;
+    const CARD_W = 400, CARD_H = 220;
+    const cx = width  / 2 - CARD_W / 2;
+    const cy = height / 2 - CARD_H / 2;
+    const DEPTH = 20;
+    const objs  = [];
+
+    const overlay = this.add.graphics().setDepth(DEPTH - 1);
+    overlay.fillStyle(0x000000, 0.55);
+    overlay.fillRect(0, 0, width, height);
+    objs.push(overlay);
+
+    const bgG = this.add.graphics().setDepth(DEPTH);
+    bgG.fillStyle(0x1b2a1b, 1);
+    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    bgG.lineStyle(1.5, 0xe76f51, 1);
+    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    objs.push(bgG);
+
+    objs.push(this.add.text(cx + 20, cy + 18, 'Ops! Você aprendeu algo importante', {
+      fontSize: '15px', color: '#e76f51',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 20, cy + 52,
+      'Você tentou plantar antes de estabilizar o solo. A erosão destruiu as mudas. É necessário fazer a bioengenharia das margens primeiro para conter o assoreamento.',
+      {
+        fontSize: '13px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
+        wordWrap: { width: CARD_W - 40 }, lineSpacing: 4,
+      }
+    ).setDepth(DEPTH));
+
+    const divG = this.add.graphics().setDepth(DEPTH);
+    divG.lineStyle(1, 0x2d6a4f, 0.5);
+    divG.lineBetween(cx + 20, cy + 138, cx + CARD_W - 20, cy + 138);
+    objs.push(divG);
+
+    objs.push(this.add.text(cx + 20, cy + 150,
+      '💡 Dica: -R$ 10.000 perdidos. Recomece com a opção correta.', {
+      fontSize: '11px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+    }).setDepth(DEPTH));
+
+    // Botão Entendido
+    const btnY  = cy + CARD_H - 52;
+    const BTN_W = 160, BTN_H = 36;
+    const btnG  = this.add.graphics().setDepth(DEPTH);
+    const desBt = (h) => {
+      btnG.clear();
+      btnG.fillStyle(h ? 0x2d6a4f : 0x1b4332, 1);
+      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6);
+    };
+    desBt(false);
+    objs.push(btnG);
+
+    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2, 'Entendido', {
+      fontSize: '13px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    const zOk = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
+      .setDepth(DEPTH).setInteractive({ useHandCursor: true });
+    zOk.on('pointerover', () => desBt(true));
+    zOk.on('pointerout',  () => desBt(false));
+    zOk.on('pointerdown', () => {
+      this._fecharCard();
+      this._menuNascenteDegradada(idx);
+    });
+    objs.push(zOk);
+
+    this.cardObjs = objs;
+  }
+
+  // -------------------------------------------------------------------------
+  // Nascente — Etapa 2: plantio de espécies hídricas
+  // -------------------------------------------------------------------------
+  _menuNascenteEtapa2(idx) {
+    const custo    = 25000;
+    const semSaldo = estadoJogo.dinheiro < custo;
+
+    this._abrirMenu(idx, {
+      titulo:    'Nascente — Etapa 2',
+      descricao: 'Solo estabilizado. Plante espécies nativas hídricas.',
+      acoes: [{
+        label:        '🌿 Plantar espécies hídricas',
+        custoStr:     `R$ ${custo.toLocaleString('pt-BR')}`,
+        desabilitado: semSaldo,
+        aviso:        semSaldo ? 'Saldo insuficiente' : null,
+        onPress: () => {
+          estadoJogo.dinheiro -= custo;
+          this.atualizarPainel();
+          this._fecharMenu();
+          this.selectedIdx = -1;
+          this._desenharSelecao();
+
+          const dur = DEV_MODE ? 8 : 45;
+          this._iniciarTimer(idx, dur, () => {
+            const hex = this.hexagonos[idx];
+            hex.producaoAgua = 500;
+            if (estadoJogo.agua === null) estadoJogo.agua = 0;
+            estadoJogo.agua += 500;
+            this.atualizarPainel();
+            this._mudarEstadoHex(idx, 'nascente_ativa');
+            this._cardNascenteRecuperada(idx);
+          }, 0x4A90D9);
+        },
+      }],
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Nascente — card comemorativo
+  // -------------------------------------------------------------------------
+  _cardNascenteRecuperada(idx) {
+    this._fecharCard();
+
+    const { width, height } = this.scale;
+    const CARD_W = 400, CARD_H = 220;
+    const cx = width  / 2 - CARD_W / 2;
+    const cy = height / 2 - CARD_H / 2;
+    const DEPTH = 20;
+    const objs  = [];
+
+    const overlay = this.add.graphics().setDepth(DEPTH - 1);
+    overlay.fillStyle(0x000000, 0.55);
+    overlay.fillRect(0, 0, width, height);
+    objs.push(overlay);
+
+    const bgG = this.add.graphics().setDepth(DEPTH);
+    bgG.fillStyle(0x0a1a2a, 1);
+    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    bgG.lineStyle(1.5, 0x4A90D9, 1);
+    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    objs.push(bgG);
+
+    objs.push(this.add.text(cx + 20, cy + 18, '💧 Nascente recuperada!', {
+      fontSize: '17px', color: '#4A90D9',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 20, cy + 56,
+      'Esta nascente agora produz 500L de água por ciclo. A água é essencial para o viveiro de mudas e para combater incêndios.',
+      {
+        fontSize: '13px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
+        wordWrap: { width: CARD_W - 40 }, lineSpacing: 4,
+      }
+    ).setDepth(DEPTH));
+
+    const divG = this.add.graphics().setDepth(DEPTH);
+    divG.lineStyle(1, 0x1a3a5a, 1);
+    divG.lineBetween(cx + 20, cy + 136, cx + CARD_W - 20, cy + 136);
+    objs.push(divG);
+
+    objs.push(this.add.text(cx + 20, cy + 150,
+      '💡 Instale uma bomba d\'água ou microcentral para ampliar os benefícios.', {
+      fontSize: '11px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+      wordWrap: { width: CARD_W - 40 },
+    }).setDepth(DEPTH));
+
+    const btnY  = cy + CARD_H - 52;
+    const BTN_W = 200, BTN_H = 36;
+    const btnG  = this.add.graphics().setDepth(DEPTH);
+    const desBt = (h) => {
+      btnG.clear();
+      btnG.fillStyle(h ? 0x1a4a7a : 0x0e2d4a, 1);
+      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6);
+    };
+    desBt(false);
+    objs.push(btnG);
+
+    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2, '✅ Excelente!', {
+      fontSize: '13px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    const zOk = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
+      .setDepth(DEPTH).setInteractive({ useHandCursor: true });
+    zOk.on('pointerover', () => desBt(true));
+    zOk.on('pointerout',  () => desBt(false));
+    zOk.on('pointerdown', () => {
+      this._fecharCard();
+      this.selectedIdx = -1;
+      this._desenharSelecao();
+    });
+    objs.push(zOk);
+
+    this.cardObjs = objs;
+  }
+
+  // -------------------------------------------------------------------------
+  // Nascente ativa — menu de infraestrutura
+  // -------------------------------------------------------------------------
+  _menuNascenteAtiva(idx) {
+    const hex       = this.hexagonos[idx];
+    const custoBomba = 25000;
+    const custoHidro = 60000;
+    const semBomba   = estadoJogo.dinheiro < custoBomba;
+    const semHidro   = estadoJogo.dinheiro < custoHidro;
+
+    const acoes = [
+      {
+        label:        hex.temBomba
+          ? '✅ Bomba d\'água instalada'
+          : '💪 Instalar bomba d\'água',
+        custoStr:     hex.temBomba
+          ? 'Produção: 1.000L/ciclo'
+          : `R$ ${custoBomba.toLocaleString('pt-BR')} — dobra a produção de água`,
+        desabilitado: hex.temBomba || semBomba,
+        aviso:        (!hex.temBomba && semBomba) ? 'Saldo insuficiente' : null,
+        onPress: () => {
+          estadoJogo.dinheiro -= custoBomba;
+          hex.temBomba     = true;
+          hex.producaoAgua = 1000;
+          this.atualizarPainel();
+          this._fecharMenu();
+          this._mostrarToast('💪 Bomba instalada! Produção de água dobrou para 1.000L/ciclo.');
+          // Ícone complementar sobre o hex
+          this._adicionarIconeHex(idx, '⚙️', -20);
+        },
+      },
+      {
+        label:        hex.temHidroeletrica
+          ? '✅ Microcentral instalada'
+          : '⚡ Microcentral hidrelétrica',
+        custoStr:     hex.temHidroeletrica
+          ? 'Gerando 200kWh/ciclo'
+          : `R$ ${custoHidro.toLocaleString('pt-BR')} — gera energia elétrica`,
+        desabilitado: hex.temHidroeletrica || semHidro,
+        aviso:        (!hex.temHidroeletrica && semHidro) ? 'Saldo insuficiente' : null,
+        onPress: () => {
+          estadoJogo.dinheiro -= custoHidro;
+          hex.temHidroeletrica = true;
+          if (estadoJogo.energia === null) estadoJogo.energia = 0;
+          estadoJogo.energia += 200;
+          this.atualizarPainel();
+          this._fecharMenu();
+          this._mostrarToast('⚡ Microcentral ativa! +200kWh/ciclo de energia limpa.');
+          this._adicionarIconeHex(idx, '⚡', 20);
+        },
+      },
+    ];
+
+    this._abrirMenu(idx, {
+      titulo:    'Nascente Ativa',
+      descricao: `Produção: ${hex.producaoAgua.toLocaleString('pt-BR')}L/ciclo`,
+      acoes,
+    });
+  }
+
+  // Adiciona um emoji extra flutuando sobre o hex (para melhorias visuais)
+  _adicionarIconeHex(idx, emoji, offsetX = 0) {
+    const hex = this.hexagonos[idx];
+    this.add.text(hex.cx + offsetX, hex.cy - 28, emoji, {
+      fontSize: '14px', fontFamily: 'sans-serif',
+    }).setOrigin(0.5).setDepth(4);
+  }
+
+  // -------------------------------------------------------------------------
+  // Texto flutuante (produção de água, etc.)
+  // -------------------------------------------------------------------------
+  _mostrarTextoFlutuante(x, y, msg, cor = '#d8f3dc') {
+    const txt = this.add.text(x, y, msg, {
+      fontSize: '14px', color: cor,
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(15);
+
+    this.tweens.add({
+      targets: txt, y: y - 30, alpha: 0,
+      duration: 1500, ease: 'Power1',
+      onComplete: () => txt.destroy(),
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Ciclo de água (produção periódica das nascentes ativas)
+  // -------------------------------------------------------------------------
+  _cicloAgua() {
+    const dur = DEV_MODE ? 15000 : 60000;
+    this.time.addEvent({
+      delay: dur, loop: true,
+      callback: () => {
+        let producaoTotal = 0;
+        this.hexagonos.forEach(hex => {
+          if (hex.tipo !== 'nascente_ativa') return;
+          producaoTotal += hex.producaoAgua;
+          this._mostrarTextoFlutuante(
+            hex.cx, hex.cy - 40,
+            `+${hex.producaoAgua.toLocaleString('pt-BR')}L`,
+            '#4A90D9'
+          );
+        });
+        if (producaoTotal > 0) {
+          if (estadoJogo.agua === null) estadoJogo.agua = 0;
+          estadoJogo.agua += producaoTotal;
+          this.atualizarPainel();
+        }
+      },
+    });
+  }
+
+  // -------------------------------------------------------------------------
   // Reocupação do garimpo (ciclo automático)
   // -------------------------------------------------------------------------
   _cicloReocupacao() {
@@ -1603,6 +1966,8 @@ class Jogo extends Phaser.Scene {
     if (key === 'dinheiro') return `R$ ${v.toLocaleString('pt-BR')}`;
     if (key === 'equipe')   return `${v.length} membro${v.length !== 1 ? 's' : ''}`;
     if (v === null || v === undefined) return '—';
+    if (key === 'agua')    return `${v.toLocaleString('pt-BR')}L`;
+    if (key === 'energia') return `${v}kWh`;
     return String(v);
   }
 
