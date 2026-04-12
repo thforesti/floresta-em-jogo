@@ -720,90 +720,14 @@ class Jogo extends Phaser.Scene {
     addFundo(this);
 
     // -----------------------------------------------------------------------
-    // Painel HUD — topo, 70px
+    // Painel HUD — HTML (flutua sobre o canvas via #hud-superior)
     // -----------------------------------------------------------------------
-    const HUD_H = 70;
-
-    const hudG = this.add.graphics();
-    hudG.fillStyle(0x0d2818, 1);
-    hudG.fillRect(0, 0, width, HUD_H);
-    hudG.lineStyle(1, 0x1e4030, 1);
-    hudG.lineBetween(0, HUD_H, width, HUD_H);
-
-    // ONG + Nome (canto esquerdo)
-    this.add.text(20, 16, dadosJogo.ong, {
-      fontSize: '14px', color: '#d8f3dc',
-      fontFamily: 'Syne, Inter, sans-serif', fontStyle: 'bold',
-    });
-    this.add.text(20, 38, dadosJogo.nome, {
-      fontSize: '12px', color: '#74c69d',
-      fontFamily: 'Inter, sans-serif',
-    });
-
-    // Blocos de recursos — flat com separadores verticais
-    const RECURSOS = [
-      { icone: '💰', labelKey: 'dinheiro', label: 'DINHEIRO', cor: '#d8f3dc' },
-      { icone: '💧', labelKey: 'agua',     label: 'ÁGUA',     cor: '#4A90D9' },
-      { icone: '👥', labelKey: 'equipe',   label: 'EQUIPE',   cor: '#d8f3dc' },
-      { icone: '🌱', labelKey: 'mudas',    label: 'MUDAS',    cor: '#d8f3dc' },
-      { icone: '⚡', labelKey: 'energia',  label: 'ENERGIA',  cor: '#C8A951' },
-    ];
-
-    const BLOCO_W = 140;
-    const recursosAreaX = 160;
-    const recursosAreaW = width - PANEL_W - recursosAreaX - 20;
-    const blocoW = Math.min(BLOCO_W, Math.floor(recursosAreaW / RECURSOS.length));
-    const blocoInicioX = recursosAreaX + (recursosAreaW - blocoW * RECURSOS.length) / 2;
-
-    this.hudTextos = {};
-
-    RECURSOS.forEach(({ icone, labelKey, label, cor }, i) => {
-      const bx = blocoInicioX + i * blocoW;
-      if (labelKey === 'dinheiro') this._dinheiroHudCx = bx + blocoW / 2;
-
-      // Separador esquerdo (não no primeiro bloco)
-      if (i > 0) {
-        const sep = this.add.graphics();
-        sep.lineStyle(1, 0x1e4030, 1);
-        sep.lineBetween(bx, 12, bx, HUD_H - 12);
-      }
-
-      // Ícone
-      this.add.text(bx + 12, HUD_H / 2, icone, {
-        fontSize: '16px', fontFamily: 'sans-serif',
-      }).setOrigin(0, 0.5);
-
-      // Valor (Syne 700 18px)
-      const txtValor = this.add.text(bx + 32, 18, this._formatarRecurso(labelKey), {
-        fontSize: '18px', color: cor,
-        fontFamily: 'Syne, Inter, sans-serif', fontStyle: 'bold',
-      }).setOrigin(0, 0.5);
-
-      // Label (Inter uppercase 10px)
-      this.add.text(bx + 32, 46, label, {
-        fontSize: '10px', color: '#52b788',
-        fontFamily: 'Inter, sans-serif',
-      }).setOrigin(0, 0.5);
-
-      this.hudTextos[labelKey] = txtValor;
-    });
-
-    // Barra de clímax — canto direito
-    const barW = PANEL_W - 24, barH = 6;
-    const barX = width - PANEL_W + 12, barY = 30;
-    this.add.text(barX, barY - 14, 'CLÍMAX', {
-      fontSize: '10px', color: '#52b788',
-      fontFamily: 'Inter, sans-serif',
-    });
-    const barG = this.add.graphics();
-    barG.fillStyle(0x1e4030, 1);
-    barG.fillRoundedRect(barX, barY, barW, barH, 2);
-    this.barraClimax = this.add.graphics();
-    this._atualizarBarra();
-    this.txtClimax = this.add.text(barX + barW, barY - 14, '0%', {
-      fontSize: '14px', color: '#d8f3dc',
-      fontFamily: 'Syne, Inter, sans-serif', fontStyle: 'bold',
-    }).setOrigin(1, 0);
+    const HUD_H = 64;
+    this.hudTextos = {};                      // mantido para compatibilidade
+    this.barraClimax = this.add.graphics();   // stub vazio (não renderiza nada)
+    this.txtClimax   = null;
+    this._dinheiroHudCx = Math.round(width * 0.38);
+    this.criarHUDHTML();
 
     // -----------------------------------------------------------------------
     // Mapa hexagonal
@@ -3422,7 +3346,7 @@ class Jogo extends Phaser.Scene {
 
   _criarPainelLateral() {
     const { width, height } = this.scale;
-    const PX = width - PANEL_W, PY = 70, PH = height - 70;
+    const PX = width - PANEL_W, PY = 64, PH = height - 64;
 
     // Fundo fixo
     const bg = this.add.graphics().setDepth(14);
@@ -3440,7 +3364,7 @@ class Jogo extends Phaser.Scene {
     this._painelConteudoObjs = [];
 
     const { width, height } = this.scale;
-    const PX = width - PANEL_W, PY = 70, PH = height - 70;
+    const PX = width - PANEL_W, PY = 64, PH = height - 64;
     const PAD = 10, CW = PANEL_W - PAD * 2;
     const DEPTH = 15;
     const LIMIT_Y = PY + PH - 6;   // não renderiza além daqui
@@ -5681,14 +5605,12 @@ class Jogo extends Phaser.Scene {
     return String(v);
   }
 
-  atualizarHUD(key) {
-    if (this.hudTextos[key]) this.hudTextos[key].setText(this._formatarRecurso(key));
-    if (key === 'climax') this._atualizarBarra();
-  }
+  // Alias de compatibilidade — qualquer atualização de recurso redesenha o HUD HTML
+  atualizarHUD(_key) { this.atualizarHUDHTML(); }
 
-  // Atualiza todos os blocos do painel de uma vez
+  // Atualiza HUD HTML + painel lateral
   atualizarPainel() {
-    Object.keys(this.hudTextos).forEach(key => this.atualizarHUD(key));
+    this.atualizarHUDHTML();
     // Painel lateral — redesenha com throttle para não travar no ciclo
     if (this._painelConteudoObjs !== undefined && !this._painelRedrawPending) {
       this._painelRedrawPending = true;
@@ -5699,16 +5621,158 @@ class Jogo extends Phaser.Scene {
     }
   }
 
-  _atualizarBarra() {
-    const barW = PANEL_W - 24, barH = 6;
-    const barX = this.scale.width - PANEL_W + 12, barY = 30;
-    const pct  = Math.min(estadoJogo.climax / 100, 1);
-    this.barraClimax.clear();
-    if (pct > 0) {
-      this.barraClimax.fillStyle(0x52b788, 1);
-      this.barraClimax.fillRoundedRect(barX, barY, barW * pct, barH, 2);
+  // Stub mantido para compatibilidade (barra de clímax agora é HTML)
+  _atualizarBarra() { this.atualizarHUDHTML(); }
+
+  // -------------------------------------------------------------------------
+  // HUD HTML
+  // -------------------------------------------------------------------------
+  criarHUDHTML() {
+    const hud = document.getElementById('hud-superior');
+    if (!hud) return;
+
+    hud.innerHTML = `
+      <div style="display:flex;align-items:center;width:100%;padding:0 20px;gap:0;height:100%;overflow:hidden;">
+
+        <!-- Identidade -->
+        <div style="min-width:140px;padding-right:20px;border-right:1px solid #1e4030;flex-shrink:0;">
+          <div id="hud-ong"     style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:#d8f3dc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px;"></div>
+          <div id="hud-jogador" style="font-family:'Inter',sans-serif;font-size:12px;color:#74c69d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px;"></div>
+        </div>
+
+        <!-- Recursos -->
+        <div style="display:flex;align-items:center;flex:1;justify-content:center;gap:0;">
+
+          <div style="padding:0 22px;border-right:1px solid #1e4030;text-align:center;">
+            <div style="display:flex;align-items:center;justify-content:center;gap:5px;">
+              <span style="font-size:13px;">💰</span>
+              <span id="hud-dinheiro" style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:#d8f3dc;white-space:nowrap;"></span>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:center;gap:5px;margin-top:1px;">
+              <span style="font-family:'Inter',sans-serif;font-size:10px;color:#52b788;text-transform:uppercase;letter-spacing:0.06em;">Dinheiro</span>
+              <span id="hud-dinheiro-delta" style="font-family:'Inter',sans-serif;font-size:10px;"></span>
+            </div>
+          </div>
+
+          <div style="padding:0 22px;border-right:1px solid #1e4030;text-align:center;">
+            <div style="display:flex;align-items:center;justify-content:center;gap:5px;">
+              <span style="font-size:13px;">💧</span>
+              <span id="hud-agua" style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:#4A90D9;white-space:nowrap;"></span>
+            </div>
+            <div style="font-family:'Inter',sans-serif;font-size:10px;color:#52b788;text-transform:uppercase;letter-spacing:0.06em;margin-top:1px;">Água</div>
+          </div>
+
+          <div style="padding:0 22px;border-right:1px solid #1e4030;text-align:center;">
+            <div style="display:flex;align-items:center;justify-content:center;gap:5px;">
+              <span style="font-size:13px;">👥</span>
+              <span id="hud-equipe" style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:#d8f3dc;white-space:nowrap;"></span>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-top:1px;">
+              <span style="font-family:'Inter',sans-serif;font-size:10px;color:#52b788;text-transform:uppercase;letter-spacing:0.06em;">Equipe</span>
+              <span id="hud-equipe-custo" style="font-family:'Inter',sans-serif;font-size:10px;color:#e76f51;"></span>
+            </div>
+          </div>
+
+          <div style="padding:0 22px;border-right:1px solid #1e4030;text-align:center;">
+            <div style="display:flex;align-items:center;justify-content:center;gap:5px;">
+              <span style="font-size:13px;">🌱</span>
+              <span id="hud-mudas" style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:#52b788;white-space:nowrap;"></span>
+            </div>
+            <div style="font-family:'Inter',sans-serif;font-size:10px;color:#52b788;text-transform:uppercase;letter-spacing:0.06em;margin-top:1px;">Mudas</div>
+          </div>
+
+          <div style="padding:0 22px;text-align:center;">
+            <div style="display:flex;align-items:center;justify-content:center;gap:5px;">
+              <span style="font-size:13px;">⚡</span>
+              <span id="hud-energia" style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:#f4a261;white-space:nowrap;"></span>
+            </div>
+            <div style="font-family:'Inter',sans-serif;font-size:10px;color:#52b788;text-transform:uppercase;letter-spacing:0.06em;margin-top:1px;">Energia</div>
+          </div>
+
+        </div>
+
+        <!-- Clímax -->
+        <div style="min-width:180px;padding-left:20px;border-left:1px solid #1e4030;flex-shrink:0;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <span style="font-family:'Inter',sans-serif;font-size:10px;color:#52b788;text-transform:uppercase;letter-spacing:0.08em;">Clímax</span>
+            <span id="hud-climax-pct" style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:#d8f3dc;">0%</span>
+          </div>
+          <div style="height:6px;background:#1e4030;border-radius:3px;overflow:hidden;">
+            <div id="hud-climax-barra" style="height:100%;width:0%;background:#52b788;border-radius:3px;transition:width 0.5s ease;"></div>
+          </div>
+        </div>
+
+      </div>
+    `;
+
+    // Identidade
+    const elOng     = document.getElementById('hud-ong');
+    const elJogador = document.getElementById('hud-jogador');
+    if (elOng)     elOng.textContent     = dadosJogo.ong  || '';
+    if (elJogador) elJogador.textContent = dadosJogo.nome || '';
+
+    // Valores iniciais
+    this.atualizarHUDHTML();
+  }
+
+  atualizarHUDHTML() {
+    const el = (id) => document.getElementById(id);
+
+    // Dinheiro
+    const din = estadoJogo.dinheiro ?? 0;
+    const fmtDin = din >= 1000000
+      ? 'R$ ' + (din / 1000000).toFixed(1) + 'M'
+      : din >= 1000
+        ? 'R$ ' + Math.round(din / 1000) + 'k'
+        : 'R$ ' + din;
+    if (el('hud-dinheiro')) el('hud-dinheiro').textContent = fmtDin;
+
+    // Delta dinheiro/ciclo: receitas - custos de equipe - trator
+    let receitas = estadoJogo.receitaPassiva ?? 0;
+    if (this.hexagonos) {
+      this.hexagonos.forEach(h => { if (h.receitaSAF > 0) receitas += h.receitaSAF; });
     }
-    if (this.txtClimax) this.txtClimax.setText(`${Math.round(estadoJogo.climax)}%`);
+    if (estadoJogo.psaAtivo) receitas += 12000;
+    if (this._objetivosAtivados?.ecoturismo) receitas += 25000;
+    const custoEq     = (estadoJogo.equipe ?? []).reduce((s, m) => s + (m.custo ?? 0), 0);
+    const custoTrator = estadoJogo.temTrator ? 2000 : 0;
+    const delta       = receitas - custoEq - custoTrator;
+    const elDelta = el('hud-dinheiro-delta');
+    if (elDelta) {
+      if (delta !== 0) {
+        elDelta.textContent = (delta > 0 ? '+' : '') + Math.round(delta / 1000) + 'k/ciclo';
+        elDelta.style.color = delta >= 0 ? '#52b788' : '#e76f51';
+      } else {
+        elDelta.textContent = '';
+      }
+    }
+
+    // Água
+    const agua = estadoJogo.agua;
+    if (el('hud-agua')) el('hud-agua').textContent = agua != null ? agua.toLocaleString('pt-BR') + 'L' : '—';
+
+    // Equipe
+    const nEq = (estadoJogo.equipe ?? []).length;
+    if (el('hud-equipe')) el('hud-equipe').textContent = nEq + (nEq === 1 ? ' membro' : ' membros');
+    const elCusto = el('hud-equipe-custo');
+    if (elCusto) {
+      elCusto.textContent = custoEq > 0
+        ? '-R$' + Math.round(custoEq / 1000) + 'k/ciclo'
+        : '';
+    }
+
+    // Mudas
+    const mudas = estadoJogo.mudas ?? 0;
+    if (el('hud-mudas')) el('hud-mudas').textContent = mudas.toLocaleString('pt-BR');
+
+    // Energia
+    const energia = estadoJogo.energia;
+    if (el('hud-energia')) el('hud-energia').textContent = energia != null ? energia + ' kWh' : '—';
+
+    // Clímax
+    const pct = Math.min(estadoJogo.climax ?? 0, 100);
+    if (el('hud-climax-pct'))   el('hud-climax-pct').textContent   = Math.round(pct) + '%';
+    if (el('hud-climax-barra')) el('hud-climax-barra').style.width = pct + '%';
   }
 }
 

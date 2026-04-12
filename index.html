@@ -145,7 +145,20 @@
   </style>
 </head>
 <body>
-  <div id="ui-overlay"></div>
+  <div id="ui-overlay">
+    <!-- ── Painel superior ── -->
+    <div id="hud-superior" style="
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 64px;
+      background: #0d2818;
+      border-bottom: 1px solid #1e4030;
+      display: flex;
+      align-items: center;
+      z-index: 150;
+      pointer-events: all;
+    "></div>
+  </div>
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
   <script src="src/main.js"></script>
 </body>
