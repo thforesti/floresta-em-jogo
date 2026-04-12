@@ -446,12 +446,13 @@ function gerarTipos(dificuldade) {
 // Estado global do jogo
 // ---------------------------------------------------------------------------
 const estadoJogo = {
-  dinheiro: 0,
-  agua:     null,
-  equipe:   [],
-  mudas:    0,
-  energia:  null,
-  climax:   0,
+  dinheiro:        0,
+  agua:            null,
+  equipe:          [],
+  mudas:           0,
+  energia:         null,
+  climax:          0,
+  aliancaIndigena: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -484,6 +485,11 @@ const PERFIS_GARIMPEIRO = [
   { nome: 'O Migrante',          descricao: 'Veio de longe em busca de sustento. Aberto a alternativas.',   bonus: 0.10 },
   { nome: 'O Veterano',          descricao: 'Conhece bem a região e resiste fortemente à negociação.',       bonus: -0.10 },
   { nome: 'O Jovem Desesperado', descricao: 'Situação precária, mas mais receptivo ao diálogo e às leis.', bonus: 0.05 },
+];
+
+const PERFIS_LIDERANCA = [
+  { nome: 'Liderança Tradicional', descricao: 'Mais fechada inicialmente, mas a aliança conquistada é poderosa e duradoura.', chanceBase: 0.40 },
+  { nome: 'Liderança Jovem',       descricao: 'Mais aberta e pragmática, focada no futuro da comunidade e das próximas gerações.', chanceBase: 0.60 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -609,6 +615,7 @@ class Jogo extends Phaser.Scene {
     this.bordaFireG    = this.add.graphics().setDepth(1.5); // borda pulsante de queimada
     this.hoverG        = this.add.graphics().setDepth(2);   // overlay de hover
     this.selectG       = this.add.graphics().setDepth(3);   // borda de seleção
+    this.semaforoG     = this.add.graphics().setDepth(4.5); // semáforos das áreas indígenas
 
     hexes.forEach(({ x, y, row, col }, idx) => {
       const tipo = tipos[idx];
@@ -654,11 +661,23 @@ class Jogo extends Phaser.Scene {
       const temHidroeletrica  = false;
       // Queimada: timer de propagação (Phaser.TimerEvent)
       const propagacaoTimer   = null;
+      // Indígena: semáforo, liderança, parcerias, diálogo
+      const estaFacil         = dadosJogo.dificuldade === 'Fácil';
+      const semaforoIndigena  = tipo === 'indigena' ? (estaFacil ? 'amarelo' : 'vermelho') : null;
+      const perfilLideranca   = tipo === 'indigena'
+        ? PERFIS_LIDERANCA[Math.floor(Math.random() * PERFIS_LIDERANCA.length)]
+        : null;
+      const bonusDialogo      = 0;
+      const parcerias         = [];   // 'sementes' | 'brigadistas'
+      const dialogoBloqueado  = false;
+      const aliancaCompleta   = false;
 
       this.hexagonos.push({
         tipo, info, row, col, cx, cy, pts, polygon, emojiTxt,
         bloqueado: false, perfil, bonusNegociacao, vigilancia,
         producaoAgua, temBomba, temHidroeletrica, propagacaoTimer,
+        semaforoIndigena, perfilLideranca, bonusDialogo,
+        parcerias, dialogoBloqueado, aliancaCompleta,
       });
     });
 
@@ -674,11 +693,14 @@ class Jogo extends Phaser.Scene {
     this.input.on('pointermove', this._onMove,  this);
     this.input.on('pointerdown', this._onClick, this);
 
+    this._redesenharSemaforos();
+
     this._cicloReocupacao();
     this._cicloAgua();
     this._iniciarPulsoQueimadas();
     this._iniciarPropagacoesIniciais();
     this._cicloQueimadas();
+    this._cicloParcerias();
   }
 
   // -------------------------------------------------------------------------
@@ -722,6 +744,7 @@ class Jogo extends Phaser.Scene {
         case 'nascente':             this._menuNascenteDegradada(idx);   break;
         case 'nascente_ativa':       this._menuNascenteAtiva(idx);       break;
         case 'queimada':             this._menuQueimada(idx);            break;
+        case 'indigena':             this._menuIndigena(idx);            break;
         default:                     this._abrirMenu(idx);
       }
     } else {
@@ -780,6 +803,9 @@ class Jogo extends Phaser.Scene {
     this.hexChangeG.strokePath();
 
     hex.emojiTxt.setText(info.emoji);
+
+    // Avalia upgrades/downgrades de semáforos indígenas após qualquer mudança
+    this._verificarSemaforosIndigenas();
   }
 
   // -------------------------------------------------------------------------
@@ -1876,6 +1902,433 @@ class Jogo extends Phaser.Scene {
           if (estadoJogo.agua === null) estadoJogo.agua = 0;
           estadoJogo.agua += producaoTotal;
           this.atualizarPainel();
+        }
+      },
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Área Indígena — helpers de vizinhança
+  // -------------------------------------------------------------------------
+  _vizinhosHexRaio(idx, raio) {
+    const visitados = new Set([idx]);
+    let fronteira = [idx];
+    for (let r = 0; r < raio; r++) {
+      const proxima = [];
+      fronteira.forEach(i => {
+        this._vizinhosHex(i).forEach(vi => {
+          if (!visitados.has(vi)) { visitados.add(vi); proxima.push(vi); }
+        });
+      });
+      fronteira = proxima;
+    }
+    visitados.delete(idx);
+    return [...visitados];
+  }
+
+  _contarVizinhosRestaurados(idx) {
+    const RESTAURADOS = ['solo_preparado', 'floresta_pioneira', 'floresta', 'nascente_ativa', 'garimpo_neutralizado'];
+    return this._vizinhosHex(idx).filter(vi => RESTAURADOS.includes(this.hexagonos[vi].tipo)).length;
+  }
+
+  // -------------------------------------------------------------------------
+  // Área Indígena — semáforo visual
+  // -------------------------------------------------------------------------
+  _redesenharSemaforos() {
+    this.semaforoG.clear();
+    const COR_SEM = { vermelho: 0xC1440E, amarelo: 0xC8A951, verde: 0x52b788 };
+    this.hexagonos.forEach(hex => {
+      if (hex.tipo !== 'indigena' || !hex.semaforoIndigena) return;
+      const cor = COR_SEM[hex.semaforoIndigena];
+      const sx = hex.cx + 26, sy = hex.cy - 22;
+      // Aro escuro
+      this.semaforoG.fillStyle(0x0d2818, 1);
+      this.semaforoG.fillCircle(sx, sy, 9);
+      // Círculo colorido
+      this.semaforoG.fillStyle(cor, 1);
+      this.semaforoG.fillCircle(sx, sy, 7);
+      // Estrela dourada se aliança completa
+      if (hex.aliancaCompleta) {
+        this.semaforoG.fillStyle(0xFFD700, 1);
+        this.semaforoG.fillCircle(sx, sy, 3);
+      }
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Área Indígena — avaliação automática de upgrades/downgrades
+  // -------------------------------------------------------------------------
+  _verificarSemaforosIndigenas() {
+    const RESTAURADOS = ['solo_preparado', 'floresta_pioneira', 'floresta', 'nascente_ativa', 'garimpo_neutralizado'];
+    const temNascenteAtiva = this.hexagonos.some(h => h.tipo === 'nascente_ativa');
+
+    this.hexagonos.forEach((hex, idx) => {
+      if (hex.tipo !== 'indigena') return;
+
+      // Ameaça: garimpo ativo num raio de 2 → regride
+      const vizR2 = this._vizinhosHexRaio(idx, 2);
+      const temGarimpoProximo = vizR2.some(vi => this.hexagonos[vi].tipo === 'garimpo');
+      if (temGarimpoProximo) {
+        if (hex.semaforoIndigena === 'verde' && !hex.aliancaCompleta) {
+          hex.semaforoIndigena = 'amarelo';
+          this._mostrarNotificacaoIndigena('⚠️ O garimpo próximo está ameaçando a comunidade indígena.');
+        } else if (hex.semaforoIndigena === 'amarelo') {
+          hex.semaforoIndigena = 'vermelho';
+          this._mostrarNotificacaoIndigena('⚠️ O garimpo próximo está ameaçando a comunidade indígena.');
+        }
+        this._redesenharSemaforos();
+        return;
+      }
+
+      // Upgrade: vermelho → amarelo
+      if (hex.semaforoIndigena === 'vermelho') {
+        const vizR1 = this._vizinhosHex(idx);
+        const temRestauracaoVizinha = vizR1.some(vi => RESTAURADOS.includes(this.hexagonos[vi].tipo));
+        if (temRestauracaoVizinha || temNascenteAtiva) {
+          hex.semaforoIndigena = 'amarelo';
+          this._mostrarNotificacaoIndigena('🪶 A comunidade indígena está observando suas ações. O diálogo agora é possível.');
+        }
+      }
+
+      // Upgrade: amarelo → verde
+      if (hex.semaforoIndigena === 'amarelo' && !hex.aliancaCompleta) {
+        const temDuasParcerias       = hex.parcerias.length >= 2;
+        const vizinhosRestaurados    = this._contarVizinhosRestaurados(idx) >= 3;
+        if (temDuasParcerias && vizinhosRestaurados) {
+          hex.semaforoIndigena = 'verde';
+          this._mostrarNotificacaoIndigena('🌿 Aliança consolidada! O Plano de Gestão Territorial agora está disponível.');
+        }
+      }
+    });
+
+    this._redesenharSemaforos();
+  }
+
+  _mostrarNotificacaoIndigena(msg) {
+    const { width } = this.scale;
+    const H = 36;
+    const bgG = this.add.graphics().setDepth(25);
+    bgG.fillStyle(0x3a1a5a, 1);
+    bgG.fillRect(0, 70, width, H);
+    const txt = this.add.text(width / 2, 70 + H / 2, msg, {
+      fontSize: '13px', color: '#d4b8f0',
+      fontFamily: 'Inter, sans-serif',
+    }).setOrigin(0.5).setDepth(25);
+    this.tweens.add({
+      targets: [bgG, txt], alpha: 0, delay: 3500, duration: 600,
+      onComplete: () => { bgG.destroy(); txt.destroy(); },
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Área Indígena — dispatcher e menus
+  // -------------------------------------------------------------------------
+  _menuIndigena(idx) {
+    const hex = this.hexagonos[idx];
+    if (hex.semaforoIndigena === 'vermelho') {
+      this._abrirMenu(idx, {
+        titulo:      '🪶 Área Indígena',
+        descricao:   'Esta comunidade ainda não confia em você. Restaure áreas próximas para abrir o diálogo.',
+        tituloColor: '#7B4FA6',
+        acoes:       [],
+      });
+    } else {
+      this._cardIndigena(idx);
+    }
+  }
+
+  _cardIndigena(idx) {
+    this._fecharMenu();
+    this._fecharCard();
+
+    const hex    = this.hexagonos[idx];
+    const perfil = hex.perfilLideranca;
+    const vizBon = this._vizinhosHex(idx).filter(vi =>
+      ['solo_preparado','floresta_pioneira','floresta','nascente_ativa','garimpo_neutralizado']
+        .includes(this.hexagonos[vi].tipo)
+    ).length;
+    const temTecnico = estadoJogo.equipe.some(m => m.tipo === 'tecnico_negociacao');
+
+    const chance = Math.min(0.90, perfil.chanceBase + hex.bonusDialogo
+      + (vizBon > 0 ? 0.15 : 0)
+      + (temTecnico ? 0.10 : 0));
+    const pct = Math.round(chance * 100);
+
+    const { width, height } = this.scale;
+    const CARD_W = 400, CARD_H = 310;
+    const cx = width / 2 - CARD_W / 2, cy = height / 2 - CARD_H / 2;
+    const DEPTH = 20, objs = [];
+
+    const overlay = this.add.graphics().setDepth(DEPTH - 1);
+    overlay.fillStyle(0x000000, 0.55);
+    overlay.fillRect(0, 0, width, height);
+    objs.push(overlay);
+
+    const bgG = this.add.graphics().setDepth(DEPTH);
+    bgG.fillStyle(0x0d1a2a, 1);
+    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    bgG.lineStyle(1.5, 0x7B4FA6, 1);
+    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    objs.push(bgG);
+
+    objs.push(this.add.text(cx + 20, cy + 18, '🪶  Área Indígena', {
+      fontSize: '16px', color: '#7B4FA6',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 20, cy + 50, perfil.nome, {
+      fontSize: '18px', color: '#d4b8f0',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 20, cy + 76, perfil.descricao, {
+      fontSize: '12px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
+      wordWrap: { width: CARD_W - 40 }, lineSpacing: 3,
+    }).setDepth(DEPTH));
+
+    const divG = this.add.graphics().setDepth(DEPTH);
+    divG.lineStyle(1, 0x3a1a5a, 1);
+    divG.lineBetween(cx + 20, cy + 132, cx + CARD_W - 20, cy + 132);
+    objs.push(divG);
+
+    objs.push(this.add.text(cx + 20, cy + 144, `Chance de diálogo bem-sucedido: ${pct}%`, {
+      fontSize: '13px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+    }).setDepth(DEPTH));
+
+    const modLines = [];
+    if (vizBon > 0) modLines.push(`+15% por benfeitoria no entorno (${vizBon} vizinho${vizBon > 1 ? 's' : ''} restaurado${vizBon > 1 ? 's' : ''})`);
+    if (temTecnico)  modLines.push('+10% com técnico de negociação');
+    if (hex.bonusDialogo > 0) modLines.push(`+${Math.round(hex.bonusDialogo * 100)}% de tentativas anteriores`);
+
+    if (modLines.length > 0) {
+      objs.push(this.add.text(cx + 20, cy + 164, modLines.join('\n'), {
+        fontSize: '11px', color: '#52b788', fontFamily: 'Inter, sans-serif',
+        lineSpacing: 3,
+      }).setDepth(DEPTH));
+    }
+
+    // Estado: bloqueado por tentativa recente?
+    const bloqueado = hex.dialogoBloqueado;
+
+    // Botão diálogo
+    const btn1Y = cy + CARD_H - 56, BTN_W = 170, BTN_H = 38;
+    const btn1G = this.add.graphics().setDepth(DEPTH);
+    const desB1 = h => {
+      btn1G.clear();
+      btn1G.fillStyle(bloqueado ? 0x1a0e2a : (h ? 0x4a2a6a : 0x2d1a4a), 1);
+      btn1G.fillRoundedRect(cx + 20, btn1Y, BTN_W, BTN_H, 6);
+    };
+    desB1(false); objs.push(btn1G);
+
+    objs.push(this.add.text(cx + 20 + BTN_W / 2, btn1Y + BTN_H / 2,
+      bloqueado ? '⏳ Aguardar...' : 'Iniciar diálogo', {
+      fontSize: '13px', color: bloqueado ? '#4a3060' : '#d4b8f0',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    if (!bloqueado) {
+      const z1 = this.add.zone(cx + 20 + BTN_W / 2, btn1Y + BTN_H / 2, BTN_W, BTN_H)
+        .setDepth(DEPTH).setInteractive({ useHandCursor: true });
+      z1.on('pointerover', () => desB1(true)); z1.on('pointerout', () => desB1(false));
+      z1.on('pointerdown', () => { this._fecharCard(); this._executarDialogo(idx); });
+      objs.push(z1);
+    }
+
+    // Botão fechar
+    const btn2G = this.add.graphics().setDepth(DEPTH);
+    const desB2 = h => {
+      btn2G.clear();
+      btn2G.fillStyle(h ? 0x1a1a2a : 0x0e0e1a, 1);
+      btn2G.fillRoundedRect(cx + CARD_W - 20 - BTN_W, btn1Y, BTN_W, BTN_H, 6);
+    };
+    desB2(false); objs.push(btn2G);
+
+    objs.push(this.add.text(cx + CARD_W - 20 - BTN_W / 2, btn1Y + BTN_H / 2, 'Fechar', {
+      fontSize: '13px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    const z2 = this.add.zone(cx + CARD_W - 20 - BTN_W / 2, btn1Y + BTN_H / 2, BTN_W, BTN_H)
+      .setDepth(DEPTH).setInteractive({ useHandCursor: true });
+    z2.on('pointerover', () => desB2(true)); z2.on('pointerout', () => desB2(false));
+    z2.on('pointerdown', () => { this._fecharCard(); this.selectedIdx = -1; this._desenharSelecao(); });
+    objs.push(z2);
+
+    this.cardObjs = objs;
+  }
+
+  _executarDialogo(idx) {
+    const hex    = this.hexagonos[idx];
+    const vizBon = this._vizinhosHex(idx).filter(vi =>
+      ['solo_preparado','floresta_pioneira','floresta','nascente_ativa','garimpo_neutralizado']
+        .includes(this.hexagonos[vi].tipo)
+    ).length;
+    const temTecnico = estadoJogo.equipe.some(m => m.tipo === 'tecnico_negociacao');
+    const chance = Math.min(0.90, hex.perfilLideranca.chanceBase + hex.bonusDialogo
+      + (vizBon > 0 ? 0.15 : 0) + (temTecnico ? 0.10 : 0));
+
+    if (Math.random() < chance) {
+      // Sucesso
+      hex.bonusDialogo = 0;
+      this._mostrarToast('✅ Diálogo bem-sucedido! A liderança aceitou conversar.');
+      this._menuParceriasIndigenas(idx);
+    } else {
+      // Falha — bloqueia por 45s/8s
+      hex.bonusDialogo = Math.min(0.40, hex.bonusDialogo + 0.10);
+      hex.dialogoBloqueado = true;
+      this._mostrarToast('A liderança não está pronta para conversar. Tente novamente em breve.');
+      const dur = DEV_MODE ? 8000 : 45000;
+      this.time.delayedCall(dur, () => { hex.dialogoBloqueado = false; });
+    }
+  }
+
+  _menuParceriasIndigenas(idx) {
+    const hex        = this.hexagonos[idx];
+    const temSem     = hex.parcerias.includes('sementes');
+    const temBrig    = hex.parcerias.includes('brigadistas');
+    const podePGT    = hex.semaforoIndigena === 'verde';
+    const semSaldo15 = estadoJogo.dinheiro < 15000;
+    const semSaldo7  = estadoJogo.dinheiro < 7000;
+    const semSaldo150 = estadoJogo.dinheiro < 150000;
+
+    const acoes = [
+      {
+        label:        temSem ? '✅ Sementes ativas' : '🌰 Comprar sementes e castanhas',
+        custoStr:     temSem ? 'R$ 15.000/ciclo ativo' : 'R$ 15.000/ciclo',
+        desabilitado: temSem || semSaldo15,
+        aviso:        (!temSem && semSaldo15) ? 'Saldo insuficiente' : null,
+        onPress: () => {
+          estadoJogo.dinheiro -= 15000;
+          hex.parcerias.push('sementes');
+          this.atualizarPainel();
+          this._fecharMenu();
+          this._adicionarIconeHex(idx, '🌰', -20);
+          this._verificarSemaforosIndigenas();
+          this._mostrarToast('🌰 Parceria de sementes ativa! R$ 15.000/ciclo.');
+        },
+      },
+      {
+        label:        temBrig ? '✅ Brigadistas ativos' : '🔥 Contratar brigadistas indígenas',
+        custoStr:     temBrig ? 'R$ 7.000/ciclo ativo' : 'R$ 7.000/ciclo por brigadista',
+        desabilitado: temBrig || semSaldo7,
+        aviso:        (!temBrig && semSaldo7) ? 'Saldo insuficiente' : null,
+        onPress: () => {
+          estadoJogo.dinheiro -= 7000;
+          hex.parcerias.push('brigadistas');
+          estadoJogo.equipe.push({ tipo: 'brigadista_indigena', origem: idx });
+          this.atualizarPainel();
+          this._fecharMenu();
+          this._adicionarIconeHex(idx, '🛡️', 20);
+          this._verificarSemaforosIndigenas();
+          this._mostrarToast('🔥 Brigadistas contratados! Combate a incêndio 50% mais rápido.');
+        },
+      },
+    ];
+
+    if (podePGT) {
+      acoes.push({
+        label:        '📋 Plano de Gestão Territorial',
+        custoStr:     `R$ 150.000 — aliança permanente`,
+        desabilitado: semSaldo150,
+        aviso:        semSaldo150 ? 'Saldo insuficiente' : null,
+        onPress: () => {
+          estadoJogo.dinheiro -= 150000;
+          this.atualizarPainel();
+          this._fecharMenu();
+          this.selectedIdx = -1; this._desenharSelecao();
+          const dur = DEV_MODE ? 15 : 120;
+          this._iniciarTimer(idx, dur, () => {
+            hex.aliancaCompleta   = true;
+            hex.semaforoIndigena  = 'verde';
+            estadoJogo.aliancaIndigena = true;
+            this._redesenharSemaforos();
+            this._cardAliancaHistorica(idx);
+          }, 0x7B4FA6);
+        },
+      });
+    }
+
+    this._abrirMenu(idx, {
+      titulo:      '🪶 Parcerias com a comunidade',
+      descricao:   'Escolha como colaborar com a liderança indígena.',
+      tituloColor: '#7B4FA6',
+      acoes,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Área Indígena — card de aliança histórica
+  // -------------------------------------------------------------------------
+  _cardAliancaHistorica(idx) {
+    this._fecharCard();
+    const { width, height } = this.scale;
+    const CARD_W = 420, CARD_H = 240;
+    const cx = width / 2 - CARD_W / 2, cy = height / 2 - CARD_H / 2;
+    const DEPTH = 20, objs = [];
+
+    const overlay = this.add.graphics().setDepth(DEPTH - 1);
+    overlay.fillStyle(0x000000, 0.55);
+    overlay.fillRect(0, 0, width, height);
+    objs.push(overlay);
+
+    const bgG = this.add.graphics().setDepth(DEPTH);
+    bgG.fillStyle(0x0d0d1a, 1);
+    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    bgG.lineStyle(1.5, 0x7B4FA6, 1);
+    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    objs.push(bgG);
+
+    objs.push(this.add.text(cx + 20, cy + 18, '🪶 Aliança histórica!', {
+      fontSize: '18px', color: '#d4b8f0',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 20, cy + 56,
+      'A comunidade indígena é agora guardiã permanente deste território. Um raio de 2 hexágonos está protegido com 80% menos risco de garimpo e queimada criminosa. Todas as negociações na região ganham +20% de bônus.',
+      { fontSize: '12px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
+        wordWrap: { width: CARD_W - 40 }, lineSpacing: 4 }
+    ).setDepth(DEPTH));
+
+    const btnY = cy + CARD_H - 52, BTN_W = 200, BTN_H = 36;
+    const btnG = this.add.graphics().setDepth(DEPTH);
+    const desBt = h => { btnG.clear(); btnG.fillStyle(h ? 0x4a2a6a : 0x2d1a4a, 1);
+      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6); };
+    desBt(false); objs.push(btnG);
+
+    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2, '⭐ Celebrar!', {
+      fontSize: '14px', color: '#d4b8f0',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    const z = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
+      .setDepth(DEPTH).setInteractive({ useHandCursor: true });
+    z.on('pointerover', () => desBt(true)); z.on('pointerout', () => desBt(false));
+    z.on('pointerdown', () => { this._fecharCard(); this.selectedIdx = -1; this._desenharSelecao(); });
+    objs.push(z);
+    this.cardObjs = objs;
+  }
+
+  // -------------------------------------------------------------------------
+  // Área Indígena — custo de parcerias por ciclo
+  // -------------------------------------------------------------------------
+  _cicloParcerias() {
+    const dur = DEV_MODE ? 15000 : 60000;
+    this.time.addEvent({
+      delay: dur, loop: true,
+      callback: () => {
+        let custo = 0;
+        this.hexagonos.forEach(hex => {
+          if (hex.tipo !== 'indigena') return;
+          if (hex.parcerias.includes('sementes'))    custo += 15000;
+          if (hex.parcerias.includes('brigadistas')) custo += 7000;
+        });
+        if (custo > 0) {
+          estadoJogo.dinheiro -= custo;
+          this.atualizarPainel();
+          this._mostrarTextoFlutuante(
+            this.scale.width / 2, 120,
+            `-R$ ${custo.toLocaleString('pt-BR')} (parcerias indígenas)`,
+            '#7B4FA6'
+          );
         }
       },
     });
