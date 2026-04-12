@@ -1028,11 +1028,8 @@ class Jogo extends Phaser.Scene {
     // Card modal aberto — bloqueia qualquer outra interação
     if (this.cardObjs.length > 0) return;
 
-    if (this.menuBounds) {
-      const { x, y, w, h } = this.menuBounds;
-      if (pointer.x >= x && pointer.x <= x + w &&
-          pointer.y >= y && pointer.y <= y + h) return;
-    }
+    // Fecha menu HTML antes de qualquer outra ação
+    this.fecharMenuHTML();
 
     const idx = this.hexagonos.findIndex(h =>
       Phaser.Geom.Polygon.Contains(h.polygon, pointer.x, pointer.y));
@@ -1416,15 +1413,13 @@ class Jogo extends Phaser.Scene {
   }
 
   // -------------------------------------------------------------------------
-  // Menu flutuante genérico
+  // Menu flutuante genérico — adaptador: converte formato Phaser → HTML
   // -------------------------------------------------------------------------
   _abrirMenu(idx, config = {}) {
-    this._fecharMenu();
-
-    const hex      = this.hexagonos[idx];
-    const titulo   = config.titulo   ?? hex.info.label;
+    const hex       = this.hexagonos[idx];
+    const titulo    = config.titulo    ?? hex.info.label;
     const descricao = config.descricao ?? (DESCRICOES[hex.tipo] ?? '');
-    const acoes    = config.acoes    ?? (ACOES[hex.tipo] ?? []).map(({ label, custo }) => ({
+    const acoes     = config.acoes     ?? (ACOES[hex.tipo] ?? []).map(({ label, custo }) => ({
       label,
       custoStr:     custo === 0 ? 'Gratuito' : `R$ ${custo.toLocaleString('pt-BR')}`,
       desabilitado: false,
@@ -1432,173 +1427,143 @@ class Jogo extends Phaser.Scene {
       onPress: () => console.log(`[Jogo] ${label} [${hex.row},${hex.col}]`),
     }));
 
-    const MENU_W   = 300;
-    const MENU_PAD = 16;
-    // Header height: title (28) + description (up to 32) + separator + padding
-    const TITLE_H  = 74;
-    const BTN_H    = 64;   // icon 36px box vertically centred
-    const AVISO_H  = 18;
-    const GAP      = 8;
-    const BOT_PAD  = 12;
-    const DEPTH    = 10;
-
-    // Helpers: extract leading emoji from label text
+    // Extrai emoji inicial do label como ícone do botão
     const splitEmoji = (txt) => {
       const m = txt.match(/^([\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}]\uFE0F?|[\uD800-\uDBFF][\uDC00-\uDFFF])\s*/u);
       if (m) return { icone: m[0].trim(), texto: txt.slice(m[0].length) };
-      // Fallback: split on first whitespace if starts with non-ASCII
       if (txt.charCodeAt(0) > 255) {
         const sp = txt.indexOf(' ');
         if (sp > 0) return { icone: txt.slice(0, sp), texto: txt.slice(sp + 1) };
       }
-      return { icone: null, texto: txt };
+      return { icone: '🌿', texto: txt };
     };
 
-    // Altura dinâmica
-    let menuH = TITLE_H + BOT_PAD;
-    acoes.forEach((a, i) => {
-      menuH += BTN_H;
-      if (a.aviso) menuH += AVISO_H + 4;
-      if (i < acoes.length - 1) menuH += GAP;
+    // Converte acoes[] → botoes[] para abrirMenuHTML
+    const botoes = acoes.map(({ label, custoStr, desabilitado, aviso, onPress }) => {
+      const { icone, texto } = splitEmoji(label);
+      return { icone, label: texto, custo: custoStr, bloqueado: desabilitado, msgBloqueio: aviso, acao: onPress };
     });
 
-    // Posição — tenta à direita, depois à esquerda, depois clamp
-    let mx = hex.cx + 44;
-    if (mx + MENU_W > this.scale.width - 8) mx = hex.cx - 44 - MENU_W;
-    mx = Math.max(8, Math.min(mx, this.scale.width - MENU_W - 8));
+    this.abrirMenuHTML({ titulo, descricao, x: hex.cx, y: hex.cy, botoes });
+  }
 
-    let my = hex.cy - menuH / 2;
-    if (my < 78) my = 78;
-    if (my + menuH > this.scale.height - 8) my = this.scale.height - 8 - menuH;
+  // -------------------------------------------------------------------------
+  // Menu HTML — renderização DOM sobre o canvas
+  // -------------------------------------------------------------------------
+  abrirMenuHTML(config) {
+    this.fecharMenuHTML();
 
-    this.menuBounds = { x: mx, y: my, w: MENU_W, h: menuH };
-    const objs = [];
+    const overlay = document.getElementById('ui-overlay');
+    if (!overlay) return;
 
-    // ── Fundo ────────────────────────────────────────────────────────────────
-    const bgG = this.add.graphics().setDepth(DEPTH);
-    bgG.fillStyle(0x122a1c, 1);
-    bgG.fillRoundedRect(mx, my, MENU_W, menuH, 16);
-    bgG.lineStyle(1, 0x2d6a4f, 1);
-    bgG.strokeRoundedRect(mx, my, MENU_W, menuH, 16);
-    objs.push(bgG);
+    // Converte coordenadas canvas → tela
+    const rect     = this.sys.game.canvas.getBoundingClientRect();
+    const scaleX   = rect.width  / this.scale.width;
+    const scaleY   = rect.height / this.scale.height;
+    const MENU_W   = 320;
+    const MENU_H_EST = 80 + (config.botoes?.length ?? 0) * 76; // estimativa para clamp vertical
 
-    // ── Título ───────────────────────────────────────────────────────────────
-    objs.push(this.add.text(mx + MENU_PAD, my + 16, titulo, {
-      fontSize: '18px', color: config.tituloColor ?? '#d8f3dc',
-      fontFamily: 'Syne, Inter, sans-serif', fontStyle: 'bold',
-    }).setDepth(DEPTH + 1));
+    let menuX = rect.left + config.x * scaleX + 24;
+    if (menuX + MENU_W > window.innerWidth - 12) menuX = rect.left + config.x * scaleX - MENU_W - 24;
+    menuX = Math.max(8, Math.min(menuX, window.innerWidth - MENU_W - 8));
 
-    // ── Descrição ────────────────────────────────────────────────────────────
-    objs.push(this.add.text(mx + MENU_PAD, my + 42, descricao, {
-      fontSize: '13px', color: config.descricaoColor ?? '#74c69d',
-      fontFamily: 'Inter, sans-serif',
-      wordWrap: { width: MENU_W - MENU_PAD * 2 - 20 },
-    }).setDepth(DEPTH + 1));
+    let menuY = rect.top + config.y * scaleY - MENU_H_EST / 2;
+    menuY = Math.max(70, Math.min(menuY, window.innerHeight - MENU_H_EST - 8));
 
-    // ── Fechar ×  ────────────────────────────────────────────────────────────
-    const closeTxt = this.add.text(mx + MENU_W - MENU_PAD, my + 16, '✕', {
-      fontSize: '18px', color: '#74c69d',
-      fontFamily: 'Inter, sans-serif',
-    }).setOrigin(1, 0).setDepth(DEPTH + 1).setInteractive({ useHandCursor: true });
-    closeTxt.on('pointerover',  () => closeTxt.setColor('#d8f3dc'));
-    closeTxt.on('pointerout',   () => closeTxt.setColor('#74c69d'));
-    closeTxt.on('pointerdown',  () => {
+    // ── Estrutura raiz ────────────────────────────────────────────────────────
+    const menu = document.createElement('div');
+    menu.id = 'hex-menu';
+    menu.style.left = `${menuX}px`;
+    menu.style.top  = `${menuY}px`;
+
+    // ── Header ────────────────────────────────────────────────────────────────
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:0;';
+
+    const headerLeft = document.createElement('div');
+    headerLeft.innerHTML = `
+      <div class="hm-title">${config.titulo}</div>
+      <div class="hm-desc">${config.descricao || ''}</div>
+    `;
+
+    const btnFechar = document.createElement('button');
+    btnFechar.className = 'hm-close';
+    btnFechar.textContent = '×';
+    btnFechar.onclick = () => {
       this.selectedIdx = -1;
       this._desenharSelecao();
-      this._fecharMenu();
-    });
-    objs.push(closeTxt);
+      this.fecharMenuHTML();
+    };
 
-    // ── Separador ────────────────────────────────────────────────────────────
-    const divG = this.add.graphics().setDepth(DEPTH);
-    divG.lineStyle(1, 0x1e4030, 1);
-    divG.lineBetween(mx + MENU_PAD, my + TITLE_H - 6,
-                     mx + MENU_W - MENU_PAD, my + TITLE_H - 6);
-    objs.push(divG);
+    header.appendChild(headerLeft);
+    header.appendChild(btnFechar);
+    menu.appendChild(header);
 
-    // ── Botões de ação ───────────────────────────────────────────────────────
-    let ay = my + TITLE_H;
-    acoes.forEach((acao, i) => {
-      const { label, custoStr, desabilitado, aviso, onPress } = acao;
-      const snapY = ay;   // closure capture
-      const bx    = mx + MENU_PAD;
-      const bw    = MENU_W - MENU_PAD * 2;
-      const { icone, texto } = splitEmoji(label);
+    // ── Separador ─────────────────────────────────────────────────────────────
+    const sep = document.createElement('div');
+    sep.className = 'hm-sep';
+    menu.appendChild(sep);
 
-      const btnG = this.add.graphics().setDepth(DEPTH + 1);
-      const desenhaBtn = (hover) => {
-        btnG.clear();
-        if (desabilitado) {
-          btnG.fillStyle(0x0d1e14, 1);
-          btnG.fillRoundedRect(bx, snapY, bw, BTN_H, 10);
-          btnG.lineStyle(1, 0x1e4030, 0.5);
-          btnG.strokeRoundedRect(bx, snapY, bw, BTN_H, 10);
-        } else {
-          btnG.fillStyle(hover ? 0x1b4332 : 0x0d2818, 1);
-          btnG.fillRoundedRect(bx, snapY, bw, BTN_H, 10);
-          btnG.lineStyle(1, hover ? 0x52b788 : 0x1e4030, 1);
-          btnG.strokeRoundedRect(bx, snapY, bw, BTN_H, 10);
-        }
-      };
-      desenhaBtn(false);
-      objs.push(btnG);
+    // ── Botões ────────────────────────────────────────────────────────────────
+    const lista = document.createElement('div');
+    lista.className = 'hm-list';
 
-      const alpha = desabilitado ? 0.4 : 1;
+    (config.botoes ?? []).forEach(btn => {
+      const bloqueado = btn.bloqueado ?? false;
 
-      // Ícone box (36×36)
-      const ICO = 36, ICO_X = bx + 14, ICO_Y = snapY + (BTN_H - ICO) / 2;
-      if (icone) {
-        const icoG = this.add.graphics().setDepth(DEPTH + 2).setAlpha(alpha);
-        icoG.fillStyle(0x1b4332, 1);
-        icoG.fillRoundedRect(ICO_X, ICO_Y, ICO, ICO, 8);
-        icoG.lineStyle(1, 0x2d6a4f, 1);
-        icoG.strokeRoundedRect(ICO_X, ICO_Y, ICO, ICO, 8);
-        objs.push(icoG);
-        objs.push(this.add.text(ICO_X + ICO / 2, ICO_Y + ICO / 2, icone, {
-          fontSize: '18px', fontFamily: 'sans-serif',
-        }).setOrigin(0.5).setDepth(DEPTH + 3).setAlpha(alpha));
+      const el = document.createElement('button');
+      el.className = 'hm-btn' + (bloqueado ? ' hm-btn--bloq' : '');
+
+      // Ícone
+      const icoEl = document.createElement('div');
+      icoEl.className = 'hm-ico';
+      icoEl.textContent = btn.icone || '🌿';
+
+      // Corpo
+      const corpo = document.createElement('div');
+      corpo.className = 'hm-body';
+      corpo.innerHTML = `
+        <div class="hm-label">${btn.label}</div>
+        ${btn.desc ? `<div class="hm-bdesc">${btn.desc}</div>` : ''}
+      `;
+
+      // Custo
+      const custoEl = document.createElement('div');
+      custoEl.className = 'hm-custo';
+      custoEl.innerHTML = `
+        ${btn.custo ? `<div class="hm-custo-val">${btn.custo}</div>` : ''}
+        ${btn.receita ? `<div class="hm-receita">${btn.receita}</div>` : ''}
+      `;
+
+      el.appendChild(icoEl);
+      el.appendChild(corpo);
+      el.appendChild(custoEl);
+
+      if (!bloqueado && btn.acao) {
+        el.onclick = () => {
+          this.fecharMenuHTML();
+          btn.acao();
+        };
       }
 
-      // Body: label + custo
-      const bodyX = icone ? ICO_X + ICO + 10 : bx + 10;
-      const bodyW = bw - (icone ? ICO + 24 + 10 : 10) - 10;
-      objs.push(this.add.text(bodyX, snapY + 18, texto, {
-        fontSize: '13px', color: '#d8f3dc',
-        fontFamily: 'Inter, sans-serif',
-        wordWrap: { width: bodyW },
-      }).setOrigin(0, 0.5).setDepth(DEPTH + 2).setAlpha(alpha));
+      lista.appendChild(el);
 
-      if (custoStr) {
-        objs.push(this.add.text(bodyX, snapY + 44, custoStr, {
-          fontSize: '11px', color: desabilitado ? '#3a6a4a' : '#e76f51',
-          fontFamily: 'Inter, sans-serif',
-        }).setOrigin(0, 0.5).setDepth(DEPTH + 2).setAlpha(alpha));
+      // Aviso de bloqueio
+      if (bloqueado && btn.msgBloqueio) {
+        const aviso = document.createElement('div');
+        aviso.className = 'hm-aviso';
+        aviso.textContent = btn.msgBloqueio;
+        lista.appendChild(aviso);
       }
-
-      if (!desabilitado) {
-        const zone = this.add.zone(bx + bw / 2, snapY + BTN_H / 2, bw, BTN_H)
-          .setDepth(DEPTH + 3).setInteractive({ useHandCursor: true });
-        zone.on('pointerover', () => desenhaBtn(true));
-        zone.on('pointerout',  () => desenhaBtn(false));
-        zone.on('pointerdown', onPress);
-        objs.push(zone);
-      }
-
-      ay += BTN_H;
-
-      if (aviso) {
-        objs.push(this.add.text(bx + 8, ay + 4, aviso, {
-          fontSize: '11px', color: '#e76f51',
-          fontFamily: 'Inter, sans-serif',
-          wordWrap: { width: bw - 16 },
-        }).setDepth(DEPTH + 1).setAlpha(desabilitado ? 0.7 : 1));
-        ay += AVISO_H + 4;
-      }
-
-      if (i < acoes.length - 1) ay += GAP;
     });
 
-    this.menuObjs = objs;
+    menu.appendChild(lista);
+    overlay.appendChild(menu);
+  }
+
+  fecharMenuHTML() {
+    const el = document.getElementById('hex-menu');
+    if (el) el.remove();
   }
 
   // -------------------------------------------------------------------------
@@ -5681,7 +5646,7 @@ class Jogo extends Phaser.Scene {
   }
 
   _fecharMenu() {
-    this.menuObjs.forEach(o => o.destroy());
+    this.fecharMenuHTML();
     this.menuObjs   = [];
     this.menuBounds = null;
   }
