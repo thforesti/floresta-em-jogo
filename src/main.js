@@ -1081,16 +1081,16 @@ class Jogo extends Phaser.Scene {
     this._verificarFauna();
     this._verificarVitoria();
 
-    // Cards educativos por tipo
-    if (novoTipo === 'saf')
-      this._mostrarCardEducativo('saf', '🌾', 'O que é SAF?',
-        'Sistemas Agroflorestais combinam árvores, cultivos e criação animal na mesma área. Produzem alimento E restauram o solo ao mesmo tempo.');
-    if (novoTipo === 'garimpo_neutralizado')
-      this._mostrarCardEducativo('garimpo_merc', '⚗️', 'Garimpo e mercúrio',
-        'O garimpo ilegal contamina rios e solos com mercúrio — um metal tóxico que entra na cadeia alimentar e afeta comunidades ribeirinhas por décadas.');
-    if (novoTipo === 'nascente_ativa')
-      this._mostrarCardEducativo('bioengenharia', '💧', 'Bioengenharia de margens',
-        'Técnica que usa plantas e estruturas naturais para estabilizar margens de rios e nascentes, prevenindo erosão e recuperando o fluxo de água.');
+    // Cards educativos — desativados temporariamente (serão reaproveitados)
+    // if (novoTipo === 'saf')
+    //   this._mostrarCardEducativo('saf', '🌾', 'O que é SAF?',
+    //     'Sistemas Agroflorestais combinam árvores, cultivos e criação animal na mesma área. Produzem alimento E restauram o solo ao mesmo tempo.');
+    // if (novoTipo === 'garimpo_neutralizado')
+    //   this._mostrarCardEducativo('garimpo_merc', '⚗️', 'Garimpo e mercúrio',
+    //     'O garimpo ilegal contamina rios e solos com mercúrio — um metal tóxico que entra na cadeia alimentar e afeta comunidades ribeirinhas por décadas.');
+    // if (novoTipo === 'nascente_ativa')
+    //   this._mostrarCardEducativo('bioengenharia', '💧', 'Bioengenharia de margens',
+    //     'Técnica que usa plantas e estruturas naturais para estabilizar margens de rios e nascentes, prevenindo erosão e recuperando o fluxo de água.');
 
     // Limpa fumaça se hex muda de tipo
     if (hex._fumacaAtiva) {
@@ -1191,7 +1191,7 @@ class Jogo extends Phaser.Scene {
           const dur = this._duracaoComEquipe(idx, DEV_MODE ? 5 : 30, 'mecanica');
           this._iniciarTimer(idx, dur, () => {
             this._mudarEstadoHex(idx, 'solo_preparado');
-            this._menuSoloPreparado(idx);
+            this._notificar('🌱 Solo preparado! Clique no hexágono para escolher o plantio.', 'positivo');
           });
         },
       }],
@@ -1981,7 +1981,8 @@ class Jogo extends Phaser.Scene {
 
           const dur = DEV_MODE ? 12 : 90;
           this._iniciarTimer(idx, dur, () => {
-            this._cardFitorremediacao(idx);
+            this._mudarEstadoHex(idx, 'solo_preparado');
+            this._notificar('🌱 Fitorremediação concluída! Solo preparado para vegetação nativa.', 'positivo');
           });
         },
       },
@@ -2020,89 +2021,11 @@ class Jogo extends Phaser.Scene {
   }
 
   // -------------------------------------------------------------------------
-  // Garimpo — card educativo da fitorremediação
+  // Garimpo — card educativo da fitorremediação (desativado temporariamente)
   // -------------------------------------------------------------------------
-  _cardFitorremediacao(idx) {
-    this._fecharCard();
-
-    const { width, height } = this.scale;
-    const CARD_W = 420, CARD_H = 300;
-    const cx = width  / 2 - CARD_W / 2;
-    const cy = height / 2 - CARD_H / 2;
-    const DEPTH = 20;
-    const objs  = [];
-
-    const overlay = this.add.graphics().setDepth(DEPTH - 1);
-    overlay.fillStyle(0x000000, 0.55);
-    overlay.fillRect(0, 0, width, height);
-    objs.push(overlay);
-
-    const bgG = this.add.graphics().setDepth(DEPTH);
-    bgG.fillStyle(0x0d2818, 1);
-    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
-    bgG.lineStyle(1.5, 0x52b788, 1);
-    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
-    objs.push(bgG);
-
-    objs.push(this.add.text(cx + 20, cy + 18, '🌱  Fitorremediação Concluída', {
-      fontSize: '16px', color: '#52b788',
-      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-    }).setDepth(DEPTH));
-
-    objs.push(this.add.text(cx + 20, cy + 50,
-      'A fitorremediação usa plantas hiperacumuladoras para extrair metais pesados do solo — como mercúrio e arsênio — deixados pelo garimpo. Este processo biorremediou o terreno e o preparou para receber vegetação nativa.',
-      {
-        fontSize: '12px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
-        wordWrap: { width: CARD_W - 40 }, lineSpacing: 4,
-      }
-    ).setDepth(DEPTH));
-
-    const divG = this.add.graphics().setDepth(DEPTH);
-    divG.lineStyle(1, 0x2d6a4f, 0.6);
-    divG.lineBetween(cx + 20, cy + 162, cx + CARD_W - 20, cy + 162);
-    objs.push(divG);
-
-    objs.push(this.add.text(cx + 20, cy + 176,
-      '🌿 Impacto: Espécies como a Brassica napus e a Helianthus annuus absorvem contaminantes e estabilizam o pH, tornando o solo fértil novamente.',
-      {
-        fontSize: '12px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
-        wordWrap: { width: CARD_W - 40 }, lineSpacing: 4,
-      }
-    ).setDepth(DEPTH));
-
-    // Botão OK
-    const btnY  = cy + CARD_H - 54;
-    const BTN_W = 200, BTN_H = 38;
-    const btnG  = this.add.graphics().setDepth(DEPTH);
-    const desBt = (h) => {
-      btnG.clear();
-      btnG.fillStyle(h ? 0x2d6a4f : 0x1b4332, 1);
-      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6);
-    };
-    desBt(false);
-    objs.push(btnG);
-
-    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2,
-      '✅ Avançar para plantio', {
-      fontSize: '13px', color: '#d8f3dc',
-      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(DEPTH));
-
-    const zOk = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
-      .setDepth(DEPTH).setInteractive({ useHandCursor: true });
-    zOk.on('pointerover', () => desBt(true));
-    zOk.on('pointerout',  () => desBt(false));
-    zOk.on('pointerdown', () => {
-      this._fecharCard();
-      this._mudarEstadoHex(idx, 'solo_preparado');
-      this._mostrarToast('Solo preparado! Agora você pode plantar vegetação nativa.');
-      this.selectedIdx = -1;
-      this._desenharSelecao();
-    });
-    objs.push(zOk);
-
-    this.cardObjs = objs;
-  }
+  // _cardFitorremediacao(idx) {
+  //   // Card educativo sobre fitorremediação — será reaproveitado depois
+  // }
 
   // -------------------------------------------------------------------------
   // Nascente degradada — menu com armadilha educativa
@@ -2127,7 +2050,7 @@ class Jogo extends Phaser.Scene {
             this._fecharMenu();
             this.selectedIdx = -1;
             this._desenharSelecao();
-            this._cardErroPlantioNascente(idx);
+            this._notificar('⚠️ Plantio falhou. O solo ainda não foi estabilizado — faça a bioengenharia primeiro. -R$ 10.000.', 'alerta');
           },
         },
         {
@@ -2145,7 +2068,7 @@ class Jogo extends Phaser.Scene {
             const dur = this._duracaoComEquipe(idx, DEV_MODE ? 10 : 75, 'nascente');
             this._iniciarTimer(idx, dur, () => {
               this._mudarEstadoHex(idx, 'nascente_bioengenharia');
-              this._notificar('⚙️ Bioengenharia concluída! Clique na nascente para plantar.', 'informativo');
+              this._notificar('⚙️ Bioengenharia concluída! Clique na nascente para plantar.', 'agua');
             }, 0x4A90D9);
           },
         },
@@ -2154,82 +2077,11 @@ class Jogo extends Phaser.Scene {
   }
 
   // -------------------------------------------------------------------------
-  // Nascente — card educativo de erro no plantio
+  // Nascente — card educativo de erro no plantio (desativado temporariamente)
   // -------------------------------------------------------------------------
-  _cardErroPlantioNascente(idx) {
-    this._fecharCard();
-
-    const { width, height } = this.scale;
-    const CARD_W = 400, CARD_H = 220;
-    const cx = width  / 2 - CARD_W / 2;
-    const cy = height / 2 - CARD_H / 2;
-    const DEPTH = 20;
-    const objs  = [];
-
-    const overlay = this.add.graphics().setDepth(DEPTH - 1);
-    overlay.fillStyle(0x000000, 0.55);
-    overlay.fillRect(0, 0, width, height);
-    objs.push(overlay);
-
-    const bgG = this.add.graphics().setDepth(DEPTH);
-    bgG.fillStyle(0x1b2a1b, 1);
-    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
-    bgG.lineStyle(1.5, 0xe76f51, 1);
-    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
-    objs.push(bgG);
-
-    objs.push(this.add.text(cx + 20, cy + 18, 'Ops! Você aprendeu algo importante', {
-      fontSize: '15px', color: '#e76f51',
-      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-    }).setDepth(DEPTH));
-
-    objs.push(this.add.text(cx + 20, cy + 52,
-      'Você tentou plantar antes de estabilizar o solo. A erosão destruiu as mudas. É necessário fazer a bioengenharia das margens primeiro para conter o assoreamento.',
-      {
-        fontSize: '13px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
-        wordWrap: { width: CARD_W - 40 }, lineSpacing: 4,
-      }
-    ).setDepth(DEPTH));
-
-    const divG = this.add.graphics().setDepth(DEPTH);
-    divG.lineStyle(1, 0x2d6a4f, 0.5);
-    divG.lineBetween(cx + 20, cy + 138, cx + CARD_W - 20, cy + 138);
-    objs.push(divG);
-
-    objs.push(this.add.text(cx + 20, cy + 150,
-      '💡 Dica: -R$ 10.000 perdidos. Recomece com a opção correta.', {
-      fontSize: '11px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
-    }).setDepth(DEPTH));
-
-    // Botão Entendido
-    const btnY  = cy + CARD_H - 52;
-    const BTN_W = 160, BTN_H = 36;
-    const btnG  = this.add.graphics().setDepth(DEPTH);
-    const desBt = (h) => {
-      btnG.clear();
-      btnG.fillStyle(h ? 0x2d6a4f : 0x1b4332, 1);
-      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6);
-    };
-    desBt(false);
-    objs.push(btnG);
-
-    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2, 'Entendido', {
-      fontSize: '13px', color: '#d8f3dc',
-      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(DEPTH));
-
-    const zOk = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
-      .setDepth(DEPTH).setInteractive({ useHandCursor: true });
-    zOk.on('pointerover', () => desBt(true));
-    zOk.on('pointerout',  () => desBt(false));
-    zOk.on('pointerdown', () => {
-      this._fecharCard();
-      this._menuNascenteDegradada(idx);
-    });
-    objs.push(zOk);
-
-    this.cardObjs = objs;
-  }
+  // _cardErroPlantioNascente(idx) {
+  //   // Card educativo sobre erro de sequência no plantio — será reaproveitado depois
+  // }
 
   // -------------------------------------------------------------------------
   // Nascente — Etapa 2: plantio de espécies hídricas
@@ -2261,7 +2113,7 @@ class Jogo extends Phaser.Scene {
             estadoJogo.agua += 500;
             this.atualizarPainel();
             this._mudarEstadoHex(idx, 'nascente_ativa');
-            this._notificar('💧 Nascente recuperada! Esta nascente produz +500L/ciclo de água pura.', 'informativo');
+            this._notificar('💧 Nascente recuperada! Esta nascente produz +500L/ciclo de água pura.', 'agua');
           }, 0x4A90D9);
         },
       }],
@@ -2298,7 +2150,7 @@ class Jogo extends Phaser.Scene {
             estadoJogo.agua += 500;
             this.atualizarPainel();
             this._mudarEstadoHex(idx, 'nascente_ativa');
-            this._notificar('💧 Nascente recuperada! Esta nascente produz +500L/ciclo de água pura.', 'informativo');
+            this._notificar('💧 Nascente recuperada! Esta nascente produz +500L/ciclo de água pura.', 'agua');
           }, 0x4A90D9);
         },
       }],
@@ -2306,83 +2158,11 @@ class Jogo extends Phaser.Scene {
   }
 
   // -------------------------------------------------------------------------
-  // Nascente — card comemorativo
+  // Nascente — card comemorativo (desativado temporariamente)
   // -------------------------------------------------------------------------
-  _cardNascenteRecuperada(idx) {
-    this._fecharCard();
-
-    const { width, height } = this.scale;
-    const CARD_W = 400, CARD_H = 220;
-    const cx = width  / 2 - CARD_W / 2;
-    const cy = height / 2 - CARD_H / 2;
-    const DEPTH = 20;
-    const objs  = [];
-
-    const overlay = this.add.graphics().setDepth(DEPTH - 1);
-    overlay.fillStyle(0x000000, 0.55);
-    overlay.fillRect(0, 0, width, height);
-    objs.push(overlay);
-
-    const bgG = this.add.graphics().setDepth(DEPTH);
-    bgG.fillStyle(0x0a1a2a, 1);
-    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
-    bgG.lineStyle(1.5, 0x4A90D9, 1);
-    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
-    objs.push(bgG);
-
-    objs.push(this.add.text(cx + 20, cy + 18, '💧 Nascente recuperada!', {
-      fontSize: '17px', color: '#4A90D9',
-      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-    }).setDepth(DEPTH));
-
-    objs.push(this.add.text(cx + 20, cy + 56,
-      'Esta nascente agora produz 500L de água por ciclo. A água é essencial para o viveiro de mudas e para combater incêndios.',
-      {
-        fontSize: '13px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
-        wordWrap: { width: CARD_W - 40 }, lineSpacing: 4,
-      }
-    ).setDepth(DEPTH));
-
-    const divG = this.add.graphics().setDepth(DEPTH);
-    divG.lineStyle(1, 0x1a3a5a, 1);
-    divG.lineBetween(cx + 20, cy + 136, cx + CARD_W - 20, cy + 136);
-    objs.push(divG);
-
-    objs.push(this.add.text(cx + 20, cy + 150,
-      '💡 Instale uma bomba d\'água ou microcentral para ampliar os benefícios.', {
-      fontSize: '11px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
-      wordWrap: { width: CARD_W - 40 },
-    }).setDepth(DEPTH));
-
-    const btnY  = cy + CARD_H - 52;
-    const BTN_W = 200, BTN_H = 36;
-    const btnG  = this.add.graphics().setDepth(DEPTH);
-    const desBt = (h) => {
-      btnG.clear();
-      btnG.fillStyle(h ? 0x1a4a7a : 0x0e2d4a, 1);
-      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6);
-    };
-    desBt(false);
-    objs.push(btnG);
-
-    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2, '✅ Excelente!', {
-      fontSize: '13px', color: '#d8f3dc',
-      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(DEPTH));
-
-    const zOk = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
-      .setDepth(DEPTH).setInteractive({ useHandCursor: true });
-    zOk.on('pointerover', () => desBt(true));
-    zOk.on('pointerout',  () => desBt(false));
-    zOk.on('pointerdown', () => {
-      this._fecharCard();
-      this.selectedIdx = -1;
-      this._desenharSelecao();
-    });
-    objs.push(zOk);
-
-    this.cardObjs = objs;
-  }
+  // _cardNascenteRecuperada(idx) {
+  //   // Card comemorativo sobre nascente recuperada — será reaproveitado depois
+  // }
 
   // -------------------------------------------------------------------------
   // Nascente ativa — menu de infraestrutura
@@ -2410,7 +2190,7 @@ class Jogo extends Phaser.Scene {
           hex.producaoAgua = 1000;
           this.atualizarPainel();
           this._fecharMenu();
-          this._mostrarToast('💪 Bomba instalada! Produção de água dobrou para 1.000L/ciclo.');
+          this._notificar('💪 Bomba instalada! Produção de água dobrou para 1.000L/ciclo.', 'agua');
           // Ícone complementar sobre o hex
           this._adicionarIconeHex(idx, '⚙️', -20);
         },
@@ -2431,7 +2211,7 @@ class Jogo extends Phaser.Scene {
           estadoJogo.energia += 200;
           this.atualizarPainel();
           this._fecharMenu();
-          this._mostrarToast('⚡ Microcentral ativa! +200kWh/ciclo de energia limpa.');
+          this._notificar('⚡ Microcentral ativa! +200kWh/ciclo de energia limpa.', 'agua');
           this._adicionarIconeHex(idx, '⚡', 20);
         },
       },
@@ -4093,7 +3873,7 @@ class Jogo extends Phaser.Scene {
             const maisCaroIdx = eq.reduce((bi, m, i) => m.custo > eq[bi].custo ? i : bi, 0);
             const mc = eq[maisCaroIdx];
             this._demitirMembro(mc.id);
-            this._notificar(`💸 Saldo insuficiente! ${mc.emoji} ${mc.nome} dispensado.`, 'critico');
+            this._notificar(`💸 Saldo insuficiente! ${mc.emoji} ${mc.nome} dispensado.`, 'emergencia');
           }
           const resto = eq.reduce((s, m) => s + m.custo, 0) + (estadoJogo.temTrator ? 2000 : 0);
           if (estadoJogo.dinheiro >= resto) { estadoJogo.dinheiro -= resto; this.atualizarPainel(); }
@@ -4520,7 +4300,7 @@ class Jogo extends Phaser.Scene {
       this._mudarEstadoHex(alvoIdx, 'queimada');
       this._iniciarPropagacao(alvoIdx);
       this._mostrarAlertaIncendio('🔥 O incêndio se propagou!');
-      if (eraMata) this._notificar('💔 Floresta destruída pelo incêndio! Invista em vigilância nas áreas vizinhas.', 'critico');
+      if (eraMata) this._notificar('💔 Floresta destruída pelo incêndio! Invista em vigilância nas áreas vizinhas.', 'emergencia');
     }
 
     // O foco original continua ativo — reinicia o timer de propagação
@@ -4696,8 +4476,8 @@ class Jogo extends Phaser.Scene {
       estadoJogo.psaAtivo = true;
       estadoJogo.receitaPassiva += 12000;
       this._mostrarToast('🌿 PSA ativado! +R$ 12.000/ciclo. +25% chance de aceite dos fazendeiros.');
-      this._mostrarCardEducativo('psa', '🌿', 'O que é PSA?',
-        'Pagamento por Serviços Ambientais — o governo e empresas pagam proprietários para manter e restaurar florestas. Conservar também é um negócio.');
+      // this._mostrarCardEducativo('psa', '🌿', 'O que é PSA?',
+      //   'Pagamento por Serviços Ambientais — o governo e empresas pagam proprietários para manter e restaurar florestas. Conservar também é um negócio.');
     }
 
     // Ecoturismo — 3 floresta_secundaria conectadas
@@ -4716,78 +4496,34 @@ class Jogo extends Phaser.Scene {
         }
       });
       this._mostrarToast('🌿 Corredor ecológico completo! Carbono +40% em todos os clímax.');
-      this._mostrarCardEducativo('corredor', '🦋', 'O que é corredor ecológico?',
-        'Faixas de floresta conectada que permitem que animais se movam entre áreas. Sem corredores, a fauna fica isolada e perde diversidade genética.');
+      // this._mostrarCardEducativo('corredor', '🦋', 'O que é corredor ecológico?',
+      //   'Faixas de floresta conectada que permitem que animais se movam entre áreas. Sem corredores, a fauna fica isolada e perde diversidade genética.');
     }
 
     // Crédito de Carbono — primeiro hex de clímax
     if (!obj.carbono && this.hexagonos.some(h => h.tipo === 'floresta_climax')) {
       obj.carbono = true;
-      this._cardCreditoCarbono();
+      estadoJogo.creditoCarbono = true;
+      this._notificar('💨 Floresta clímax ativa! Créditos de carbono agora disponíveis para negociação.', 'positivo');
     }
   }
 
   // -------------------------------------------------------------------------
-  // Card educativo — Crédito de Carbono
+  // Card educativo — Crédito de Carbono (desativado temporariamente)
   // -------------------------------------------------------------------------
-  _cardCreditoCarbono() {
-    this._fecharCard();
-    const { width, height } = this.scale;
-    const CARD_W = 440, CARD_H = 260;
-    const cx = width / 2 - CARD_W / 2, cy = height / 2 - CARD_H / 2;
-    const DEPTH = 20, objs = [];
-
-    const overlay = this.add.graphics().setDepth(DEPTH - 1);
-    overlay.fillStyle(0x000000, 0.6);
-    overlay.fillRect(0, 0, width, height);
-    objs.push(overlay);
-
-    const bgG = this.add.graphics().setDepth(DEPTH);
-    bgG.fillStyle(0x0d2818, 1);
-    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 12);
-    bgG.lineStyle(2, 0xC8A951, 1);
-    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 12);
-    objs.push(bgG);
-
-    objs.push(this.add.text(cx + CARD_W / 2, cy + 28, '🌍 Crédito de Carbono', {
-      fontSize: '18px', color: '#C8A951',
-      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(DEPTH));
-
-    objs.push(this.add.text(cx + 24, cy + 68,
-      'Parabéns! Sua floresta clímax já captura carbono de forma mensurável.\n\n' +
-      'Cada hectare de floresta clímax sequestra ~10 t CO₂/ano. Com certificação, isso pode ser vendido em mercados voluntários de carbono por R$ 50–300 por tonelada.\n\n' +
-      'O Brasil tem potencial de ser o maior exportador de créditos de carbono do mundo.',
-      { fontSize: '13px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
-        wordWrap: { width: CARD_W - 48 }, lineSpacing: 5 }
-    ).setDepth(DEPTH));
-
-    const btnY = cy + CARD_H - 52, BTN_W = 200, BTN_H = 36;
-    const btnG = this.add.graphics().setDepth(DEPTH);
-    const desBt = h => {
-      btnG.clear();
-      btnG.fillStyle(h ? 0x9a7d2a : 0x6b551a, 1);
-      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6);
-    };
-    desBt(false); objs.push(btnG);
-
-    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2, 'Incrível! Continuar', {
-      fontSize: '13px', color: '#ffffff',
-      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(DEPTH));
-
-    const z = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
-      .setDepth(DEPTH + 1).setInteractive({ useHandCursor: true });
-    z.on('pointerover', () => desBt(true));
-    z.on('pointerout',  () => desBt(false));
-    z.on('pointerdown', () => {
-      this._fecharCard();
-      this._mostrarCardEducativo('carbono', '💨', 'Como funciona o crédito de carbono?',
-        'Florestas absorvem CO₂ da atmosfera. Empresas pagam para compensar suas emissões. Sua floresta vira receita.');
-    });
-    objs.push(z);
-    this.cardObjs = objs;
-  }
+  // _cardCreditoCarbono() {
+  //   this._fecharCard();
+  //   const { width, height } = this.scale;
+  //   const CARD_W = 440, CARD_H = 260;
+  //   const cx = width / 2 - CARD_W / 2, cy = height / 2 - CARD_H / 2;
+  //   const DEPTH = 20, objs = [];
+  //   const overlay = this.add.graphics().setDepth(DEPTH - 1);
+  //   overlay.fillStyle(0x000000, 0.6);
+  //   overlay.fillRect(0, 0, width, height);
+  //   objs.push(overlay);
+  //   // ... card content ...
+  //   this.cardObjs = objs;
+  // }
 
   // -------------------------------------------------------------------------
   // Verifica condições de desbloqueio de fauna
@@ -5188,64 +4924,12 @@ class Jogo extends Phaser.Scene {
   // CARDS EDUCATIVOS
   // =========================================================================
 
-  _mostrarCardEducativo(id, icone, titulo, texto) {
-    if (estadoJogo.cardsVistos.includes(id)) return;
-    const tentar = () => {
-      if (this.cardObjs.length > 0) { this.time.delayedCall(3500, tentar); return; }
-      estadoJogo.cardsVistos.push(id);
-      this._exibirCardEducativo(icone, titulo, texto);
-    };
-    this.time.delayedCall(900, tentar);
+  // _mostrarCardEducativo e _exibirCardEducativo — desativados temporariamente
+  // Serão reaproveitados de outra forma
+  _mostrarCardEducativo(_id, _icone, _titulo, _texto) {
+    // Cards educativos desativados — retorna sem fazer nada
   }
-
-  _exibirCardEducativo(icone, titulo, texto) {
-    this._fecharCard();
-    const { width, height } = this.scale;
-    const CARD_W = 400, CARD_H = 200;
-    const cx = width / 2 - CARD_W / 2, cy = height / 2 - CARD_H / 2;
-    const DEPTH = 22, objs = [];
-
-    const ov = this.add.graphics().setDepth(DEPTH - 1);
-    ov.fillStyle(0x000000, 0.5); ov.fillRect(0, 0, width, height);
-    objs.push(ov);
-
-    const bg = this.add.graphics().setDepth(DEPTH);
-    bg.fillStyle(0x0d1f0d, 1);
-    bg.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
-    bg.lineStyle(1, 0x52b788, 1);
-    bg.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
-    objs.push(bg);
-
-    objs.push(this.add.text(cx + CARD_W / 2, cy + 24, icone, { fontSize: '28px' })
-      .setOrigin(0.5).setDepth(DEPTH));
-
-    objs.push(this.add.text(cx + CARD_W / 2, cy + 60, titulo, {
-      fontSize: '16px', color: '#d8f3dc',
-      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(DEPTH));
-
-    objs.push(this.add.text(cx + 20, cy + 90, texto, {
-      fontSize: '13px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
-      wordWrap: { width: CARD_W - 40 }, lineSpacing: 4,
-    }).setDepth(DEPTH));
-
-    const btnY = cy + CARD_H - 46, BTN_W = 160, BTN_H = 32;
-    const btnG = this.add.graphics().setDepth(DEPTH);
-    const desBt = h => { btnG.clear(); btnG.fillStyle(h ? 0x2d6a4f : 0x1b4332, 1);
-      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6); };
-    desBt(false); objs.push(btnG);
-
-    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2, 'Entendido →', {
-      fontSize: '12px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(DEPTH));
-
-    const z = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
-      .setDepth(DEPTH + 1).setInteractive({ useHandCursor: true });
-    z.on('pointerover', () => desBt(true)); z.on('pointerout', () => desBt(false));
-    z.on('pointerdown', () => this._fecharCard());
-    objs.push(z);
-    this.cardObjs = objs;
-  }
+  // _exibirCardEducativo(icone, titulo, texto) { ... }
 
   // =========================================================================
   // SISTEMA DE EVENTOS
@@ -5265,42 +4949,58 @@ class Jogo extends Phaser.Scene {
   // Banner piscante de aviso no topo (delegated to _notificar)
   // -------------------------------------------------------------------------
   _mostrarBannerAviso(msg) {
-    this._notificar(msg, 'critico');
+    this._notificar(msg, 'emergencia');
   }
 
   // -------------------------------------------------------------------------
   // Sistema de notificações — canto inferior esquerdo, empilhado
+  // Tipos: positivo (verde), agua (azul), atencao (amarelo),
+  //        alerta (laranja), emergencia (vermelho), critico (vermelho persistente)
+  //        informativo → alias de agua para compatibilidade
   // -------------------------------------------------------------------------
   _notificar(msg, tipo = 'positivo') {
     if (!this._notifObjs) this._notifObjs = [];
     // Remove expiradas
     this._notifObjs = this._notifObjs.filter(n => n.alive);
     if (this._notifObjs.length >= 4) {
-      // Remove a mais antiga
       const oldest = this._notifObjs.shift();
       oldest.alive = false;
       oldest.objs.forEach(o => { if (o.active) o.destroy(); });
     }
 
-    const COR_MAP = { positivo: 0x52b788, informativo: 0x4A90D9, critico: 0xC1440E };
+    const COR_MAP = {
+      positivo:   0x52b788,  // verde   — progresso e conquistas
+      agua:       0x4A90D9,  // azul    — água
+      informativo:0x4A90D9,  // azul    — alias de agua
+      atencao:    0xf4a261,  // amarelo — atenção / avisos
+      alerta:     0xe76f51,  // laranja — reocupação, fumaça
+      emergencia: 0xe63946,  // vermelho— queimada ativa, saldo crítico
+      critico:    0xe63946,  // vermelho— alias persistente de emergencia
+    };
     const cor = COR_MAP[tipo] ?? COR_MAP.positivo;
+    const isPersistente = tipo === 'critico' || tipo === 'emergencia';
 
     const { height } = this.scale;
     const W = 340, H = 44, GAP = 6, BORDA = 3;
     const ax = 12;
     const DEPTH = 22;
 
-    // Reposiciona todas as existentes para cima
+    // Reposiciona todas as existentes para cima, preservando cor original de cada uma
     this._notifObjs.forEach((n, i) => {
       const targetY = height - 12 - (this._notifObjs.length - i) * (H + GAP);
       n.objs.forEach(o => {
         if (!o.active) return;
         if (o.type === 'Text') { o.y = targetY + H / 2; return; }
-        if (o.geom) {
+        if (o === n.bgObj) {
           o.clear();
-          o.fillStyle(0x0d2818, 0.92);
+          o.fillStyle(0x1b4332, 1);
           o.fillRoundedRect(ax, targetY, W, H, 5);
-          o.fillStyle(cor, 1);
+          o.lineStyle(1, 0x2d6a4f, 0.6);
+          o.strokeRoundedRect(ax, targetY, W, H, 5);
+        }
+        if (o === n.accentObj) {
+          o.clear();
+          o.fillStyle(n.cor, 1);
           o.fillRect(ax, targetY + 4, BORDA, H - 8);
         }
       });
@@ -5310,8 +5010,10 @@ class Jogo extends Phaser.Scene {
     const ay   = height - 12 - (slot + 1) * (H + GAP);
 
     const bg = this.add.graphics().setDepth(DEPTH);
-    bg.fillStyle(0x0d2818, 0.92);
+    bg.fillStyle(0x1b4332, 1);
     bg.fillRoundedRect(ax, ay, W, H, 5);
+    bg.lineStyle(1, 0x2d6a4f, 0.6);
+    bg.strokeRoundedRect(ax, ay, W, H, 5);
 
     const accent = this.add.graphics().setDepth(DEPTH + 0.5);
     accent.fillStyle(cor, 1);
@@ -5322,7 +5024,7 @@ class Jogo extends Phaser.Scene {
       wordWrap: { width: W - BORDA - 22 }, lineSpacing: 2,
     }).setOrigin(0, 0.5).setDepth(DEPTH + 1);
 
-    const entry = { alive: true, objs: [bg, accent, txt] };
+    const entry = { alive: true, cor, bgObj: bg, accentObj: accent, objs: [bg, accent, txt] };
     this._notifObjs.push(entry);
 
     const destruir = () => {
@@ -5331,7 +5033,7 @@ class Jogo extends Phaser.Scene {
       this._notifObjs = this._notifObjs.filter(n => n !== entry);
     };
 
-    if (tipo === 'critico') {
+    if (isPersistente) {
       const z = this.add.zone(ax + W / 2, ay + H / 2, W, H)
         .setDepth(DEPTH + 2).setInteractive({ useHandCursor: true });
       z.on('pointerdown', () => { destruir(); if (z.active) z.destroy(); });
@@ -5667,10 +5369,7 @@ class Jogo extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(4.6);
     this.tweens.add({ targets: avisoObj, alpha: 0.2, duration: 400, yoyo: true, repeat: -1 });
 
-    this._mostrarAlerta(
-      '🐄 Invasão de pasto iminente! Inicie negociação para evitar.',
-      '#C8A951', true
-    );
+    this._notificar('🐄 Invasão de pasto iminente! Inicie negociação para evitar.', 'alerta');
 
     const durAviso = DEV_MODE ? 8000 : 30000;
     hex.invasaoTimer = this.time.delayedCall(durAviso, () => {
@@ -5689,7 +5388,7 @@ class Jogo extends Phaser.Scene {
       alvoHex.receitaSAF        = 0;
       alvoHex.expansaoTimer     = null;
       this._mudarEstadoHex(alvoIdx, 'pecuaria');
-      this._mostrarAlerta('🐄 Invasão de pasto! Um hexágono foi convertido em pecuária.', '#C8A951', true);
+      this._notificar('🐄 Invasão de pasto! Um hexágono foi convertido em pecuária.', 'alerta');
     });
   }
 
@@ -5800,7 +5499,7 @@ class Jogo extends Phaser.Scene {
             hex.bonusNegociacao  = 0;
             hex.vigilancia       = false;
             this._mudarEstadoHex(idx, 'garimpo');
-            this._notificar('⚠️ Garimpeiros voltaram a ocupar uma área neutralizada!', 'critico');
+            this._notificar('⚠️ Garimpeiros voltaram a ocupar uma área neutralizada!', 'alerta');
           }
         });
       },
