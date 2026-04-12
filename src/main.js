@@ -1541,17 +1541,17 @@ class Jogo extends Phaser.Scene {
       }).setOrigin(0, 0.5).setDepth(DEPTH + 2));
     }
 
-    // Chance block (header right)
+    // Chance block (header right) — depth 23 garante visibilidade sobre tudo no header
     if (chance !== undefined) {
       const chRX = cx + CARD_W - M;
-      objs.push(this.add.text(chRX, avY + 5, 'CHANCE', {
+      objs.push(this.add.text(chRX, avY + 4, 'CHANCE', {
         fontSize: '10px', color: '#52b788',
         fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-      }).setOrigin(1, 0).setDepth(DEPTH + 2));
-      objs.push(this.add.text(chRX, avY + 20, `${Math.round(chance * 100)}%`, {
-        fontSize: '24px', color: '#95d5b2',
+      }).setOrigin(1, 0).setDepth(DEPTH + 3));
+      objs.push(this.add.text(chRX, avY + 18, `${Math.round(chance * 100)}%`, {
+        fontSize: '22px', color: '#95d5b2',
         fontFamily: 'Syne, Inter, sans-serif', fontStyle: 'bold',
-      }).setOrigin(1, 0).setDepth(DEPTH + 2));
+      }).setOrigin(1, 0).setDepth(DEPTH + 3));
     }
 
     // ── Zone 2: Speech bubble ─────────────────────────────────────────────
@@ -1580,6 +1580,10 @@ class Jogo extends Phaser.Scene {
 
     const BTN_W = CARD_W - M * 2;
     botoes.forEach(btn => {
+      // ── Captura snapY ANTES de qualquer modificação de btnY ───────────────
+      // Correção: closures capturando btnY por referência causam hover bugado
+      // após a 1ª interação (o redesenho ocorria na posição do último botão).
+      const snapY  = btnY;
       const bh     = bH(btn);
       const isProp = isPropBtn(btn);
       const corN   = btn.recomendado ? 0x163828 : (btn.cor ?? 0x0d2818);
@@ -1587,23 +1591,24 @@ class Jogo extends Phaser.Scene {
       const corHov = btn.recomendado ? 0x1d4a30 : (btn.corHover ?? 0x1b4332);
 
       const bG = this.add.graphics().setDepth(DEPTH + 1);
+      // draw usa snapY (valor imutável) em vez de btnY (que muda a cada iteração)
       const draw = (hov) => {
         bG.clear();
         bG.fillStyle(btn.desabilitado ? 0x0d1e14 : (hov ? corHov : corN), 1);
-        bG.fillRoundedRect(cx + M, btnY, BTN_W, bh, 10);
+        bG.fillRoundedRect(cx + M, snapY, BTN_W, bh, 10);
         bG.lineStyle(1, btn.desabilitado ? 0x1a2e1a : (hov && !btn.recomendado ? 0x52b788 : corBrd), 1);
-        bG.strokeRoundedRect(cx + M, btnY, BTN_W, bh, 10);
+        bG.strokeRoundedRect(cx + M, snapY, BTN_W, bh, 10);
       };
       draw(false);
       objs.push(bG);
 
       if (isProp) {
-        // Icon square 36×36
-        const ICO = 36, icoX = cx + M + 14, icoY = btnY + (bh - ICO) / 2;
+        // Icon square 40×40
+        const ICO = 40, icoX = cx + M + 14, icoY = snapY + (bh - ICO) / 2;
         const icoG = this.add.graphics().setDepth(DEPTH + 2);
-        icoG.fillStyle(btn.desabilitado ? 0x0d1610 : 0x1b4332, 1);
+        icoG.fillStyle(0x1b4332, 1);
         icoG.fillRoundedRect(icoX, icoY, ICO, ICO, 8);
-        icoG.lineStyle(1, btn.desabilitado ? 0x1a2414 : 0x2d6a4f, 1);
+        icoG.lineStyle(1, 0x2d6a4f, 1);
         icoG.strokeRoundedRect(icoX, icoY, ICO, ICO, 8);
         objs.push(icoG);
         if (btn.icone) {
@@ -1613,14 +1618,14 @@ class Jogo extends Phaser.Scene {
         }
 
         // Body
-        const bodyX = icoX + ICO + 12, bodyW = BTN_W - ICO - 14 - 12 - 92;
-        objs.push(this.add.text(bodyX, btnY + 14, btn.label, {
+        const bodyX = icoX + ICO + 12, bodyW = BTN_W - ICO - 14 - 12 - 96;
+        objs.push(this.add.text(bodyX, snapY + 14, btn.label, {
           fontSize: '14px', color: btn.desabilitado ? '#3a5040' : (btn.corLabel ?? '#d8f3dc'),
           fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
           wordWrap: { width: bodyW },
         }).setDepth(DEPTH + 3));
         if (btn.sublabel) {
-          objs.push(this.add.text(bodyX, btnY + 36, btn.sublabel, {
+          objs.push(this.add.text(bodyX, snapY + 36, btn.sublabel, {
             fontSize: '12px', color: btn.desabilitado ? '#2a4030' : '#74c69d',
             fontFamily: 'Inter, sans-serif', wordWrap: { width: bodyW },
           }).setDepth(DEPTH + 3));
@@ -1629,26 +1634,26 @@ class Jogo extends Phaser.Scene {
         // Right block: cost + chance
         const rX = cx + CARD_W - M - 8;
         if (btn.custo) {
-          objs.push(this.add.text(rX, btnY + 14, btn.custo, {
+          objs.push(this.add.text(rX, snapY + 14, btn.custo, {
             fontSize: '13px', color: btn.desabilitado ? '#3a4030' : '#e76f51',
             fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
           }).setOrigin(1, 0).setDepth(DEPTH + 3));
         }
         if (btn.chanceBase !== undefined) {
-          objs.push(this.add.text(rX, btnY + 34, `${Math.round(btn.chanceBase * 100)}% chance`, {
+          objs.push(this.add.text(rX, snapY + 34, `${Math.round(btn.chanceBase * 100)}% chance`, {
             fontSize: '11px', color: btn.desabilitado ? '#2a4030' : '#52b788',
             fontFamily: 'Inter, sans-serif',
           }).setOrigin(1, 0).setDepth(DEPTH + 3));
         }
       } else {
         // Simple button
-        const tY = btn.sublabel ? btnY + 12 : btnY + bh / 2;
+        const tY = btn.sublabel ? snapY + 12 : snapY + bh / 2;
         objs.push(this.add.text(cx + M + 14, tY, btn.label, {
           fontSize: '13px', color: btn.desabilitado ? '#4a6a4a' : (btn.corLabel ?? '#d8f3dc'),
           fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
         }).setOrigin(0, btn.sublabel ? 0 : 0.5).setDepth(DEPTH + 2));
         if (btn.sublabel) {
-          objs.push(this.add.text(cx + M + 14, btnY + 32, btn.sublabel, {
+          objs.push(this.add.text(cx + M + 14, snapY + 32, btn.sublabel, {
             fontSize: '11px', color: btn.desabilitado ? '#3a5a3a' : '#74c69d',
             fontFamily: 'Inter, sans-serif',
           }).setDepth(DEPTH + 2));
@@ -1656,7 +1661,7 @@ class Jogo extends Phaser.Scene {
       }
 
       if (!btn.desabilitado && btn.onPress) {
-        const z = this.add.zone(cx + M + BTN_W / 2, btnY + bh / 2, BTN_W, bh)
+        const z = this.add.zone(cx + M + BTN_W / 2, snapY + bh / 2, BTN_W, bh)
           .setInteractive({ useHandCursor: true }).setDepth(DEPTH + 4);
         z.on('pointerover', () => draw(true));
         z.on('pointerout',  () => draw(false));
@@ -3078,6 +3083,12 @@ class Jogo extends Phaser.Scene {
       });
     }
 
+    // Melhor chance disponível entre as propostas habilitadas → header
+    const habBotoes = botoes.filter(b => !b.desabilitado && b.chanceBase !== undefined);
+    const melhorChance = habBotoes.length > 0
+      ? Math.max(...habBotoes.map(b => b.chanceBase))
+      : undefined;
+
     this._cardDialogo({
       nome:        pf.nomePropio,
       perfilLabel: pf.nome,
@@ -3085,6 +3096,7 @@ class Jogo extends Phaser.Scene {
       corAvatar:   pf.corAvatar ?? 0xC8A951,
       fala:        pf.falas?.proposta ?? 'Fala o que você tem pra oferecer.',
       tomFala:     'neutro',
+      chance:      melhorChance,
       botoes,
     });
   }
