@@ -695,69 +695,83 @@ class Jogo extends Phaser.Scene {
     const hudG = this.add.graphics();
     hudG.fillStyle(0x0d2818, 1);
     hudG.fillRect(0, 0, width, HUD_H);
-    hudG.lineStyle(1, 0x2d6a4f, 1);
+    hudG.lineStyle(1, 0x1e4030, 1);
     hudG.lineBetween(0, HUD_H, width, HUD_H);
 
-    this.add.text(20, 14, dadosJogo.ong, {
-      fontSize: '14px', color: '#52b788',
-      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    // ONG + Nome (canto esquerdo)
+    this.add.text(20, 16, dadosJogo.ong, {
+      fontSize: '14px', color: '#d8f3dc',
+      fontFamily: 'Syne, Inter, sans-serif', fontStyle: 'bold',
     });
-    this.add.text(20, 34, dadosJogo.nome, {
+    this.add.text(20, 38, dadosJogo.nome, {
       fontSize: '12px', color: '#74c69d',
       fontFamily: 'Inter, sans-serif',
     });
 
+    // Blocos de recursos — flat com separadores verticais
     const RECURSOS = [
-      { icone: '💰', labelKey: 'dinheiro', label: 'Dinheiro', cor: '#d8f3dc' },
-      { icone: '💧', labelKey: 'agua',     label: 'Água',      cor: '#4A90D9' },
-      { icone: '👥', labelKey: 'equipe',   label: 'Equipe',    cor: '#74c69d' },
-      { icone: '🌱', labelKey: 'mudas',    label: 'Mudas',     cor: '#74c69d' },
-      { icone: '⚡', labelKey: 'energia',  label: 'Energia',   cor: '#C8A951' },
+      { icone: '💰', labelKey: 'dinheiro', label: 'DINHEIRO', cor: '#d8f3dc' },
+      { icone: '💧', labelKey: 'agua',     label: 'ÁGUA',     cor: '#4A90D9' },
+      { icone: '👥', labelKey: 'equipe',   label: 'EQUIPE',   cor: '#d8f3dc' },
+      { icone: '🌱', labelKey: 'mudas',    label: 'MUDAS',    cor: '#d8f3dc' },
+      { icone: '⚡', labelKey: 'energia',  label: 'ENERGIA',  cor: '#C8A951' },
     ];
 
-    const BLOCO_W = 160, BLOCO_H = 50, BLOCO_GAP = 8;
-    const blocoInicioX = (width - (RECURSOS.length * BLOCO_W + (RECURSOS.length - 1) * BLOCO_GAP)) / 2;
-    const blocoY = (HUD_H - BLOCO_H) / 2;
+    const BLOCO_W = 140;
+    const recursosAreaX = 160;
+    const recursosAreaW = width - PANEL_W - recursosAreaX - 20;
+    const blocoW = Math.min(BLOCO_W, Math.floor(recursosAreaW / RECURSOS.length));
+    const blocoInicioX = recursosAreaX + (recursosAreaW - blocoW * RECURSOS.length) / 2;
 
     this.hudTextos = {};
 
     RECURSOS.forEach(({ icone, labelKey, label, cor }, i) => {
-      const bx = blocoInicioX + i * (BLOCO_W + BLOCO_GAP);
-      if (labelKey === 'dinheiro') this._dinheiroHudCx = bx + BLOCO_W / 2;
-      const bg = this.add.graphics();
-      bg.fillStyle(0x1b4332, 1);
-      bg.fillRoundedRect(bx, blocoY, BLOCO_W, BLOCO_H, 6);
-      this.add.text(bx + 12, blocoY + BLOCO_H / 2, icone, {
-        fontSize: '18px', fontFamily: 'sans-serif',
+      const bx = blocoInicioX + i * blocoW;
+      if (labelKey === 'dinheiro') this._dinheiroHudCx = bx + blocoW / 2;
+
+      // Separador esquerdo (não no primeiro bloco)
+      if (i > 0) {
+        const sep = this.add.graphics();
+        sep.lineStyle(1, 0x1e4030, 1);
+        sep.lineBetween(bx, 12, bx, HUD_H - 12);
+      }
+
+      // Ícone
+      this.add.text(bx + 12, HUD_H / 2, icone, {
+        fontSize: '16px', fontFamily: 'sans-serif',
       }).setOrigin(0, 0.5);
-      const txtValor = this.add.text(bx + BLOCO_W - 10, blocoY + 14,
-        this._formatarRecurso(labelKey), {
+
+      // Valor (Syne 700 18px)
+      const txtValor = this.add.text(bx + 32, 18, this._formatarRecurso(labelKey), {
         fontSize: '18px', color: cor,
-        fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-      }).setOrigin(1, 0.5);
-      this.add.text(bx + BLOCO_W - 10, blocoY + 36, label.toUpperCase(), {
-        fontSize: '11px', color: '#74c69d',
-        fontFamily: 'Inter, sans-serif', letterSpacing: 1,
-      }).setOrigin(1, 0.5);
+        fontFamily: 'Syne, Inter, sans-serif', fontStyle: 'bold',
+      }).setOrigin(0, 0.5);
+
+      // Label (Inter uppercase 10px)
+      this.add.text(bx + 32, 46, label, {
+        fontSize: '10px', color: '#52b788',
+        fontFamily: 'Inter, sans-serif',
+      }).setOrigin(0, 0.5);
+
       this.hudTextos[labelKey] = txtValor;
     });
 
-    // Barra de clímax — posicionada no cabeçalho da área do painel
-    const barW = 220, barH = 10;
-    const barX = width - PANEL_W + 10, barY = 14;
-    this.add.text(barX, barY - 3, 'CLÍMAX', {
-      fontSize: '10px', color: '#74c69d',
-      fontFamily: 'Inter, sans-serif', letterSpacing: 1,
-    }).setOrigin(0, 1);
+    // Barra de clímax — canto direito
+    const barW = PANEL_W - 24, barH = 6;
+    const barX = width - PANEL_W + 12, barY = 30;
+    this.add.text(barX, barY - 14, 'CLÍMAX', {
+      fontSize: '10px', color: '#52b788',
+      fontFamily: 'Inter, sans-serif',
+    });
     const barG = this.add.graphics();
-    barG.fillStyle(0x1b4332, 1);
-    barG.fillRoundedRect(barX, barY, barW, barH, 4);
+    barG.fillStyle(0x1e4030, 1);
+    barG.fillRoundedRect(barX, barY, barW, barH, 2);
     this.barraClimax = this.add.graphics();
     this._atualizarBarra();
-    this.txtClimax = this.add.text(barX + barW / 2, barY + barH + 5, '0%', {
-      fontSize: '10px', color: '#74c69d',
-      fontFamily: 'Inter, sans-serif',
-    }).setOrigin(0.5, 0);
+    this.txtClimax = this.add.text(barX + barW, barY - 14, '0%', {
+      fontSize: '14px', color: '#d8f3dc',
+      fontFamily: 'Syne, Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(1, 0);
 
     // -----------------------------------------------------------------------
     // Mapa hexagonal
@@ -1316,20 +1330,33 @@ class Jogo extends Phaser.Scene {
       onPress: () => console.log(`[Jogo] ${label} [${hex.row},${hex.col}]`),
     }));
 
-    const MENU_W   = 280;
+    const MENU_W   = 300;
     const MENU_PAD = 16;
-    const TITLE_H  = 72;   // cabeçalho + separador
-    const ACTION_H = 50;   // altura do botão (duas linhas: label + custo)
-    const AVISO_H  = 20;
-    const GAP      = 10;   // espaço entre botões
-    const BOT_PAD  = 16;
+    // Header height: title (28) + description (up to 32) + separator + padding
+    const TITLE_H  = 74;
+    const BTN_H    = 64;   // icon 36px box vertically centred
+    const AVISO_H  = 18;
+    const GAP      = 8;
+    const BOT_PAD  = 12;
     const DEPTH    = 10;
+
+    // Helpers: extract leading emoji from label text
+    const splitEmoji = (txt) => {
+      const m = txt.match(/^([\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}]\uFE0F?|[\uD800-\uDBFF][\uDC00-\uDFFF])\s*/u);
+      if (m) return { icone: m[0].trim(), texto: txt.slice(m[0].length) };
+      // Fallback: split on first whitespace if starts with non-ASCII
+      if (txt.charCodeAt(0) > 255) {
+        const sp = txt.indexOf(' ');
+        if (sp > 0) return { icone: txt.slice(0, sp), texto: txt.slice(sp + 1) };
+      }
+      return { icone: null, texto: txt };
+    };
 
     // Altura dinâmica
     let menuH = TITLE_H + BOT_PAD;
     acoes.forEach((a, i) => {
-      menuH += ACTION_H;
-      if (a.aviso) menuH += 4 + AVISO_H;
+      menuH += BTN_H;
+      if (a.aviso) menuH += AVISO_H + 4;
       if (i < acoes.length - 1) menuH += GAP;
     });
 
@@ -1345,31 +1372,32 @@ class Jogo extends Phaser.Scene {
     this.menuBounds = { x: mx, y: my, w: MENU_W, h: menuH };
     const objs = [];
 
-    // Fundo
+    // ── Fundo ────────────────────────────────────────────────────────────────
     const bgG = this.add.graphics().setDepth(DEPTH);
-    bgG.fillStyle(0x0d2818, 1);
-    bgG.fillRoundedRect(mx, my, MENU_W, menuH, 8);
+    bgG.fillStyle(0x122a1c, 1);
+    bgG.fillRoundedRect(mx, my, MENU_W, menuH, 16);
     bgG.lineStyle(1, 0x2d6a4f, 1);
-    bgG.strokeRoundedRect(mx, my, MENU_W, menuH, 8);
+    bgG.strokeRoundedRect(mx, my, MENU_W, menuH, 16);
     objs.push(bgG);
 
-    // Título
-    objs.push(this.add.text(mx + MENU_PAD, my + 14, titulo, {
-      fontSize: '16px', color: config.tituloColor ?? '#d8f3dc',
-      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-    }).setDepth(DEPTH));
+    // ── Título ───────────────────────────────────────────────────────────────
+    objs.push(this.add.text(mx + MENU_PAD, my + 16, titulo, {
+      fontSize: '18px', color: config.tituloColor ?? '#d8f3dc',
+      fontFamily: 'Syne, Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH + 1));
 
-    // Descrição
-    objs.push(this.add.text(mx + MENU_PAD, my + 36, descricao, {
-      fontSize: '12px', color: config.descricaoColor ?? '#74c69d',
+    // ── Descrição ────────────────────────────────────────────────────────────
+    objs.push(this.add.text(mx + MENU_PAD, my + 42, descricao, {
+      fontSize: '13px', color: config.descricaoColor ?? '#74c69d',
       fontFamily: 'Inter, sans-serif',
-      wordWrap: { width: MENU_W - MENU_PAD * 2 - 24 },
-    }).setDepth(DEPTH));
+      wordWrap: { width: MENU_W - MENU_PAD * 2 - 20 },
+    }).setDepth(DEPTH + 1));
 
-    // Fechar
-    const closeTxt = this.add.text(mx + MENU_W - MENU_PAD, my + 14, '✕', {
-      fontSize: '14px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
-    }).setOrigin(1, 0).setDepth(DEPTH).setInteractive({ useHandCursor: true });
+    // ── Fechar ×  ────────────────────────────────────────────────────────────
+    const closeTxt = this.add.text(mx + MENU_W - MENU_PAD, my + 16, '✕', {
+      fontSize: '18px', color: '#74c69d',
+      fontFamily: 'Inter, sans-serif',
+    }).setOrigin(1, 0).setDepth(DEPTH + 1).setInteractive({ useHandCursor: true });
     closeTxt.on('pointerover',  () => closeTxt.setColor('#d8f3dc'));
     closeTxt.on('pointerout',   () => closeTxt.setColor('#74c69d'));
     closeTxt.on('pointerdown',  () => {
@@ -1379,61 +1407,90 @@ class Jogo extends Phaser.Scene {
     });
     objs.push(closeTxt);
 
-    // Separador
+    // ── Separador ────────────────────────────────────────────────────────────
     const divG = this.add.graphics().setDepth(DEPTH);
-    divG.lineStyle(1, 0x2d6a4f, 0.7);
-    divG.lineBetween(mx + MENU_PAD, my + TITLE_H - 4,
-                     mx + MENU_W - MENU_PAD, my + TITLE_H - 4);
+    divG.lineStyle(1, 0x1e4030, 1);
+    divG.lineBetween(mx + MENU_PAD, my + TITLE_H - 6,
+                     mx + MENU_W - MENU_PAD, my + TITLE_H - 6);
     objs.push(divG);
 
+    // ── Botões de ação ───────────────────────────────────────────────────────
     let ay = my + TITLE_H;
-    acoes.forEach(({ label, custoStr, desabilitado, aviso, onPress }, i) => {
-      // *** captura o valor atual de ay para a closure — evita closure-em-loop ***
-      const buttonY = ay;
-      const bx = mx + MENU_PAD;
-      const bw = MENU_W - MENU_PAD * 2;
+    acoes.forEach((acao, i) => {
+      const { label, custoStr, desabilitado, aviso, onPress } = acao;
+      const snapY = ay;   // closure capture
+      const bx    = mx + MENU_PAD;
+      const bw    = MENU_W - MENU_PAD * 2;
+      const { icone, texto } = splitEmoji(label);
 
-      const btnG = this.add.graphics().setDepth(DEPTH);
+      const btnG = this.add.graphics().setDepth(DEPTH + 1);
       const desenhaBtn = (hover) => {
         btnG.clear();
-        btnG.fillStyle(desabilitado ? 0x132b1f : (hover ? 0x2d6a4f : 0x1b4332), 1);
-        btnG.fillRoundedRect(bx, buttonY, bw, ACTION_H, 6);
+        if (desabilitado) {
+          btnG.fillStyle(0x0d1e14, 1);
+          btnG.fillRoundedRect(bx, snapY, bw, BTN_H, 10);
+          btnG.lineStyle(1, 0x1e4030, 0.5);
+          btnG.strokeRoundedRect(bx, snapY, bw, BTN_H, 10);
+        } else {
+          btnG.fillStyle(hover ? 0x1b4332 : 0x0d2818, 1);
+          btnG.fillRoundedRect(bx, snapY, bw, BTN_H, 10);
+          btnG.lineStyle(1, hover ? 0x52b788 : 0x1e4030, 1);
+          btnG.strokeRoundedRect(bx, snapY, bw, BTN_H, 10);
+        }
       };
       desenhaBtn(false);
       objs.push(btnG);
 
-      // Label — linha superior do botão
-      objs.push(this.add.text(bx + 10, buttonY + 14, label, {
-        fontSize: '13px', color: desabilitado ? '#4a6b5a' : '#d8f3dc',
-        fontFamily: 'Inter, sans-serif',
-      }).setOrigin(0, 0.5).setDepth(DEPTH));
+      const alpha = desabilitado ? 0.4 : 1;
 
-      // Custo — linha inferior do botão (sem sobreposição com o label)
+      // Ícone box (36×36)
+      const ICO = 36, ICO_X = bx + 14, ICO_Y = snapY + (BTN_H - ICO) / 2;
+      if (icone) {
+        const icoG = this.add.graphics().setDepth(DEPTH + 2).setAlpha(alpha);
+        icoG.fillStyle(0x1b4332, 1);
+        icoG.fillRoundedRect(ICO_X, ICO_Y, ICO, ICO, 8);
+        icoG.lineStyle(1, 0x2d6a4f, 1);
+        icoG.strokeRoundedRect(ICO_X, ICO_Y, ICO, ICO, 8);
+        objs.push(icoG);
+        objs.push(this.add.text(ICO_X + ICO / 2, ICO_Y + ICO / 2, icone, {
+          fontSize: '18px', fontFamily: 'sans-serif',
+        }).setOrigin(0.5).setDepth(DEPTH + 3).setAlpha(alpha));
+      }
+
+      // Body: label + custo
+      const bodyX = icone ? ICO_X + ICO + 10 : bx + 10;
+      const bodyW = bw - (icone ? ICO + 24 + 10 : 10) - 10;
+      objs.push(this.add.text(bodyX, snapY + 18, texto, {
+        fontSize: '13px', color: '#d8f3dc',
+        fontFamily: 'Inter, sans-serif',
+        wordWrap: { width: bodyW },
+      }).setOrigin(0, 0.5).setDepth(DEPTH + 2).setAlpha(alpha));
+
       if (custoStr) {
-        objs.push(this.add.text(bx + 10, buttonY + 34, custoStr, {
-          fontSize: '11px', color: desabilitado ? '#2d6a4f' : '#52b788',
+        objs.push(this.add.text(bodyX, snapY + 44, custoStr, {
+          fontSize: '11px', color: desabilitado ? '#3a6a4a' : '#e76f51',
           fontFamily: 'Inter, sans-serif',
-        }).setOrigin(0, 0.5).setDepth(DEPTH));
+        }).setOrigin(0, 0.5).setDepth(DEPTH + 2).setAlpha(alpha));
       }
 
       if (!desabilitado) {
-        const zone = this.add.zone(bx + bw / 2, buttonY + ACTION_H / 2, bw, ACTION_H)
-          .setDepth(DEPTH).setInteractive({ useHandCursor: true });
+        const zone = this.add.zone(bx + bw / 2, snapY + BTN_H / 2, bw, BTN_H)
+          .setDepth(DEPTH + 3).setInteractive({ useHandCursor: true });
         zone.on('pointerover', () => desenhaBtn(true));
         zone.on('pointerout',  () => desenhaBtn(false));
         zone.on('pointerdown', onPress);
         objs.push(zone);
       }
 
-      ay += ACTION_H;
+      ay += BTN_H;
 
       if (aviso) {
         objs.push(this.add.text(bx + 8, ay + 4, aviso, {
-          fontSize: '11px', color: desabilitado ? '#e76f51' : '#74c69d',
+          fontSize: '11px', color: '#e76f51',
           fontFamily: 'Inter, sans-serif',
           wordWrap: { width: bw - 16 },
-        }).setDepth(DEPTH));
-        ay += 4 + AVISO_H;
+        }).setDepth(DEPTH + 1).setAlpha(desabilitado ? 0.7 : 1));
+        ay += AVISO_H + 4;
       }
 
       if (i < acoes.length - 1) ay += GAP;
@@ -3271,7 +3328,7 @@ class Jogo extends Phaser.Scene {
   }
 
   _mostrarNotificacaoPecuaria(msg) {
-    this._notificar(msg, 'informativo');
+    this._notificar(msg, 'alerta');
   }
 
   // -------------------------------------------------------------------------
@@ -3302,9 +3359,9 @@ class Jogo extends Phaser.Scene {
 
     // Fundo fixo
     const bg = this.add.graphics().setDepth(14);
-    bg.fillStyle(0x0a1f0a, 1);
+    bg.fillStyle(0x0d2818, 1);
     bg.fillRect(PX, PY, PANEL_W, PH);
-    bg.lineStyle(1, 0x2d6a4f, 1);
+    bg.lineStyle(1, 0x1e4030, 1);
     bg.lineBetween(PX, PY, PX, PY + PH);
 
     this._redesenharPainel();
@@ -3334,11 +3391,13 @@ class Jogo extends Phaser.Scene {
       if (!cabe(26)) return false;
       const H = 26;
       const bg2 = this.add.graphics().setDepth(DEPTH);
-      bg2.fillStyle(0x163416, 1);
+      bg2.fillStyle(0x122a1c, 1);
       bg2.fillRect(PX, y, PANEL_W, H);
+      bg2.lineStyle(1, 0x1e4030, 0.8);
+      bg2.lineBetween(PX, y + H, PX + PANEL_W, y + H);
       push(bg2);
-      const arrow = this._secoesAbertas[secIdx] ? '▼' : '▶';
-      push(this.add.text(PX + 8, y + H / 2, `${arrow} ${icon} ${label}`, {
+      const arrow = this._secoesAbertas[secIdx] ? '▾' : '▸';
+      push(this.add.text(PX + 8, y + H / 2, `${arrow} ${icon} ${label.toUpperCase()}`, {
         fontSize: '11px', color: '#52b788',
         fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
       }).setOrigin(0, 0.5).setDepth(DEPTH + 1));
@@ -3354,7 +3413,7 @@ class Jogo extends Phaser.Scene {
     };
 
     // ── Linha de texto simples ────────────────────────────────────────────
-    const txtLine = (txt, cor = '#d8f3dc', size = '11px', bold = false) => {
+    const txtLine = (txt, cor = '#d8f3dc', size = '12px', bold = false) => {
       if (!cabe(15)) return;
       const t = push(this.add.text(PX + PAD, y, txt, {
         fontSize: size, color: cor,
@@ -3370,13 +3429,22 @@ class Jogo extends Phaser.Scene {
       const pct  = max > 0 ? Math.min(1, cur / max) : 0;
       const done = pct >= 1;
       const cor  = done ? '#52b788' : '#74c69d';
-      txtLine(`${done ? '✅ ' : ''}${label} ${cur}/${max}`, cor, '10px');
-      if (!done && cabe(10)) {
+      if (!cabe(15)) return;
+      // Label + count right-aligned
+      push(this.add.text(PX + PAD, y, `${done ? '✅ ' : ''}${label}`, {
+        fontSize: '10px', color: cor,
+        fontFamily: 'Inter, sans-serif',
+      }).setDepth(DEPTH + 1));
+      push(this.add.text(PX + PANEL_W - PAD, y, `${cur}/${max}`, {
+        fontSize: '10px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+      }).setOrigin(1, 0).setDepth(DEPTH + 1));
+      y += 14;
+      if (!done && cabe(8)) {
         const barBg = push(this.add.graphics().setDepth(DEPTH + 1));
-        barBg.fillStyle(0x2d6a4f, 1);
-        barBg.fillRoundedRect(PX + PAD, y, CW, 6, 2);
-        if (pct > 0) { barBg.fillStyle(0x52b788, 1); barBg.fillRoundedRect(PX + PAD, y, CW * pct, 6, 2); }
-        y += 8;
+        barBg.fillStyle(0x1e4030, 1);
+        barBg.fillRoundedRect(PX + PAD, y, CW, 4, 2);
+        if (pct > 0) { barBg.fillStyle(0x52b788, 1); barBg.fillRoundedRect(PX + PAD, y, CW * pct, 4, 2); }
+        y += 6;
       }
     };
 
@@ -3521,11 +3589,15 @@ class Jogo extends Phaser.Scene {
 
       // ── Equipe ativa ────────────────────────────────────────────────────
       const subHeader = (label) => {
-        if (!cabe(14)) return;
-        push(this.add.text(PX + PAD, y, label, {
-          fontSize: '8px', color: '#52b788', fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+        if (!cabe(16)) return;
+        const subG = push(this.add.graphics().setDepth(DEPTH));
+        subG.lineStyle(1, 0x1e4030, 0.6);
+        subG.lineBetween(PX + PAD, y + 7, PX + PANEL_W - PAD, y + 7);
+        push(this.add.text(PX + PAD + 4, y, label, {
+          fontSize: '9px', color: '#52b788', fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+          backgroundColor: '#0d2818', padding: { x: 4 },
         }).setDepth(DEPTH + 1));
-        y += 14;
+        y += 18;
       };
 
       subHeader('EQUIPE ATIVA');
@@ -5114,7 +5186,7 @@ class Jogo extends Phaser.Scene {
           delete hex._producaoAguaOriginal;
         }
       });
-      this._mostrarAlerta('🌧️ A seca passou. Produção de água normalizada.', '#4A90D9');
+      this._notificar('🌧️ A seca passou. Produção de água normalizada.', 'agua');
     });
   }
 
@@ -5561,13 +5633,13 @@ class Jogo extends Phaser.Scene {
   }
 
   _atualizarBarra() {
-    const barW = 220, barH = 10;
-    const barX = this.scale.width - PANEL_W + 10, barY = 14;
+    const barW = PANEL_W - 24, barH = 6;
+    const barX = this.scale.width - PANEL_W + 12, barY = 30;
     const pct  = Math.min(estadoJogo.climax / 100, 1);
     this.barraClimax.clear();
     if (pct > 0) {
       this.barraClimax.fillStyle(0x52b788, 1);
-      this.barraClimax.fillRoundedRect(barX, barY, barW * pct, barH, 4);
+      this.barraClimax.fillRoundedRect(barX, barY, barW * pct, barH, 2);
     }
     if (this.txtClimax) this.txtClimax.setText(`${Math.round(estadoJogo.climax)}%`);
   }
