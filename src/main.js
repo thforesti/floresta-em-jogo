@@ -913,7 +913,8 @@ class Jogo extends Phaser.Scene {
     // -----------------------------------------------------------------------
     // Equipe + Painel Lateral
     // -----------------------------------------------------------------------
-    this._secoesAbertas    = [true, true, true, false, true];
+    this._secoesAbertas      = [true, true, true, false, true];
+    this._equipeScrollOffset = 0;
     this._painelConteudoObjs = [];
     this._painelRedrawPending = false;
     this._criarPainelLateral();
@@ -3563,8 +3564,14 @@ class Jogo extends Phaser.Scene {
         txtLine('Nenhum membro contratado.', '#74c69d', '10px');
         y += 4;
       } else {
-        eq.forEach(m => {
-          if (!cabe(30)) return;
+        // Scroll virtual — máx 6 linhas (192px) para não empurrar seções abaixo
+        const MAX_VIS = 6, ITEM_H = 32;
+        const offset = Math.min(this._equipeScrollOffset, Math.max(0, eq.length - MAX_VIS));
+        this._equipeScrollOffset = offset;
+        const visivel = eq.slice(offset, offset + MAX_VIS);
+
+        visivel.forEach(m => {
+          if (!cabe(ITEM_H)) return;
           const rowY = y;
           push(this.add.text(PX + PAD, rowY, `${m.emoji} ${m.nome}`, {
             fontSize: '10px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
@@ -3586,10 +3593,78 @@ class Jogo extends Phaser.Scene {
           zDem.on('pointerover', () => drawDem(true));
           zDem.on('pointerout',  () => drawDem(false));
           zDem.on('pointerdown', () => this._demitirMembro(m.id));
-          y += 32;
+          y += ITEM_H;
         });
+
+        // Controles de scroll (só aparecem se lista excede MAX_VIS)
+        if (eq.length > MAX_VIS && cabe(20)) {
+          const SCH = 20, SCW = CW;
+          const scY = y;
+          push(this.add.graphics().setDepth(DEPTH).fillStyle(0x0d2818, 1).fillRect(PX + PAD, scY, SCW, SCH));
+
+          // Botão ▲
+          if (offset > 0) {
+            const upG = push(this.add.graphics().setDepth(DEPTH + 1));
+            const drawUp = (ov) => { upG.clear(); upG.fillStyle(ov ? 0x2d6a4f : 0x1b4332, 1); upG.fillRoundedRect(PX + PAD, scY + 2, 22, 16, 3); };
+            drawUp(false);
+            push(this.add.text(PX + PAD + 11, scY + 10, '▲', { fontSize: '9px', color: '#74c69d', fontFamily: 'Inter, sans-serif' }).setOrigin(0.5).setDepth(DEPTH + 2));
+            const zUp = push(this.add.zone(PX + PAD + 11, scY + 10, 22, 16).setInteractive({ useHandCursor: true }).setDepth(DEPTH + 3));
+            zUp.on('pointerover', () => drawUp(true));
+            zUp.on('pointerout',  () => drawUp(false));
+            zUp.on('pointerdown', () => { this._equipeScrollOffset = Math.max(0, offset - MAX_VIS); this.atualizarPainel(); });
+          }
+
+          // Contador central
+          push(this.add.text(PX + PAD + SCW / 2, scY + SCH / 2, `${offset + 1}–${Math.min(offset + MAX_VIS, eq.length)} de ${eq.length}`, {
+            fontSize: '8px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+          }).setOrigin(0.5).setDepth(DEPTH + 2));
+
+          // Botão ▼
+          if (offset + MAX_VIS < eq.length) {
+            const dnG = push(this.add.graphics().setDepth(DEPTH + 1));
+            const drawDn = (ov) => { dnG.clear(); dnG.fillStyle(ov ? 0x2d6a4f : 0x1b4332, 1); dnG.fillRoundedRect(PX + PAD + SCW - 22, scY + 2, 22, 16, 3); };
+            drawDn(false);
+            push(this.add.text(PX + PAD + SCW - 11, scY + 10, '▼', { fontSize: '9px', color: '#74c69d', fontFamily: 'Inter, sans-serif' }).setOrigin(0.5).setDepth(DEPTH + 2));
+            const zDn = push(this.add.zone(PX + PAD + SCW - 11, scY + 10, 22, 16).setInteractive({ useHandCursor: true }).setDepth(DEPTH + 3));
+            zDn.on('pointerover', () => drawDn(true));
+            zDn.on('pointerout',  () => drawDn(false));
+            zDn.on('pointerdown', () => { this._equipeScrollOffset = Math.min(eq.length - 1, offset + MAX_VIS); this.atualizarPainel(); });
+          }
+          y += SCH;
+        }
         y += 2;
       }
+
+      // ── Status de bônus ──────────────────────────────────────────────────
+      {
+        const nTec  = this._contarMembros('tecnico_florestal');
+        const nBrig = estadoJogo.equipe.filter(m => m.tipo === 'brigadista' || m.tipo === 'brigadista_indigena').length;
+        let pctEco  = Math.min(0.50, nTec * 0.10);
+        if (estadoJogo.temTrator) pctEco = Math.min(0.70, pctEco + 0.20);
+        const pctFogo = Math.min(0.50, nBrig * 0.10);
+        const temNeg  = estadoJogo.equipe.some(m => m.tipo === 'tecnico_negociacao');
+
+        if (pctEco > 0 && cabe(14)) {
+          push(this.add.text(PX + PAD, y, `⚡ Restauração/preparo: ${Math.round(pctEco * 100)}% mais rápido`, {
+            fontSize: '9px', color: '#52b788', fontFamily: 'Inter, sans-serif',
+          }).setDepth(DEPTH + 1));
+          y += 14;
+        }
+        if (pctFogo > 0 && cabe(14)) {
+          push(this.add.text(PX + PAD, y, `🔥 Combate a incêndio: ${Math.round(pctFogo * 100)}% mais rápido`, {
+            fontSize: '9px', color: '#e76f51', fontFamily: 'Inter, sans-serif',
+          }).setDepth(DEPTH + 1));
+          y += 14;
+        }
+        if (!temNeg && cabe(14)) {
+          push(this.add.text(PX + PAD, y, '⚠️ Negociação bloqueada — contrate um técnico', {
+            fontSize: '9px', color: '#C8A951', fontFamily: 'Inter, sans-serif',
+            wordWrap: { width: CW },
+          }).setDepth(DEPTH + 1));
+          y += 18;
+        }
+      }
+      y += 4;
 
       // ── Contratar ────────────────────────────────────────────────────────
       subHeader('CONTRATAR');
@@ -3847,12 +3922,15 @@ class Jogo extends Phaser.Scene {
 
   _duracaoComEquipe(_hexIdx, durSeg, tipoAcao) {
     let reducao = 0;
-    if (['saf', 'viveiro', 'manejo', 'nascente', 'sucessao'].includes(tipoAcao)) {
+    if (['saf', 'viveiro', 'manejo', 'nascente', 'sucessao', 'mecanica'].includes(tipoAcao)) {
       // Técnicos florestais: 10% cada, cap 50%
       const nTec = this._contarMembros('tecnico_florestal');
       reducao = Math.min(0.50, nTec * 0.10);
       // Trator: +20%, combinado cap 70%
       if (estadoJogo.temTrator) reducao = Math.min(0.70, reducao + 0.20);
+      const final = Math.max(1, Math.round(durSeg * (1 - reducao)));
+      console.log(`[Equipe] Timer base: ${durSeg}s | Bônus equipe: ${Math.round(reducao * 100)}% | Timer final: ${final}s`);
+      return final;
     }
     if (tipoAcao === 'queimada') {
       // Brigadistas (regulares e indígenas via parceria): 10% cada, cap 50%
