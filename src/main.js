@@ -458,6 +458,7 @@ const estadoJogo = {
   energia:         null,
   climax:          0,
   aliancaIndigena: false,
+  psa:             false,
   psaAtivo:        false,
   receitaPassiva:  0,
   fauna:           [],
@@ -513,24 +514,24 @@ const PERFIS_FAZENDEIRO = [
 const NOMES_FAZENDEIROS = ['João', 'Carlos', 'Antônio', 'Sebastião', 'Raimundo', 'Pedro'];
 
 const FAUNA_CATALOGO = [
-  { id: 'abelha', emoji: '🐝', nome: 'Abelha Jataí',   raridade: 'Comum',    corRar: '#74c69d',
-    funcao: 'Polinizadora — +20% reprodução de todas as espécies',
-    dado:   'Abelhas nativas polinizam 70% das espécies vegetais da Amazônia' },
-  { id: 'cutia',  emoji: '🐾', nome: 'Cutia',          raridade: 'Incomum',  corRar: '#52b788',
+  { id: 'abelha', emoji: '🐝', nome: 'Abelha Jataí',  raridade: 'Comum',    corRar: '#74c69d',
+    funcao: 'Polinizadora — +20% reprodução de todas as espécies.',
+    dado:   'Abelhas nativas polinizam 70% das espécies vegetais da Amazônia.' },
+  { id: 'cutia',  emoji: '🦔', nome: 'Cutia',         raridade: 'Incomum',  corRar: '#52b788',
     funcao: 'Dispersora exclusiva da castanha-do-pará. Sem ela, a castanheira não se reproduz.',
-    dado:   'Relação de 8 milhões de anos entre cutia e castanheira' },
-  { id: 'tucano', emoji: '🦜', nome: 'Tucano',         raridade: 'Raro',     corRar: '#4A90D9',
+    dado:   'Relação de 8 milhões de anos entre cutia e castanheira.' },
+  { id: 'tucano', emoji: '🐦', nome: 'Tucano',        raridade: 'Raro',     corRar: '#4A90D9',
     funcao: 'Dispersa copaíba e outras espécies. Desbloqueia crescimento passivo de climácicas.',
-    dado:   'Um tucano pode dispersar sementes a até 2km da árvore-mãe' },
-  { id: 'pacu',   emoji: '🐟', nome: 'Pacu',           raridade: 'Incomum',  corRar: '#52b788',
+    dado:   'Um tucano pode dispersar sementes a até 2km da árvore-mãe.' },
+  { id: 'pacu',   emoji: '🐟', nome: 'Pacu',          raridade: 'Incomum',  corRar: '#52b788',
     funcao: 'Superdispersor nas matas ciliares. Essencial para a bacia hidrográfica.',
-    dado:   'Pacus dispersam mais sementes nas matas ciliares do que qualquer ave' },
-  { id: 'anta',   emoji: '🦏', nome: 'Anta',           raridade: 'Raro',     corRar: '#4A90D9',
+    dado:   'Pacus dispersam mais sementes nas matas ciliares do que qualquer ave.' },
+  { id: 'anta',   emoji: '🦌', nome: 'Anta',          raridade: 'Raro',     corRar: '#4A90D9',
     funcao: 'Dispersora de sementes grandes. Desbloqueia o sub-bosque.',
-    dado:   'A anta dispersa mais de 50 espécies que nenhum outro animal consegue carregar' },
-  { id: 'onca',   emoji: '🐆', nome: 'Onça-pintada',   raridade: 'Lendária', corRar: '#C8A951',
+    dado:   'A anta dispersa mais de 50 espécies que nenhum outro animal consegue carregar.' },
+  { id: 'onca',   emoji: '🐆', nome: 'Onça-pintada',  raridade: 'Lendária', corRar: '#C8A951',
     funcao: 'Predador de topo. Confirma ecossistema maduro.',
-    dado:   'Onde há onça, há ecossistema completo. É o indicador mais preciso de saúde florestal.' },
+    dado:   'Onde há onça, há ecossistema completo.' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -550,6 +551,7 @@ class Jogo extends Phaser.Scene {
     estadoJogo.energia         = null;
     estadoJogo.climax          = 0;
     estadoJogo.aliancaIndigena = false;
+    estadoJogo.psa             = false;
     estadoJogo.psaAtivo        = false;
     estadoJogo.receitaPassiva  = 0;
     estadoJogo.fauna           = [];
@@ -592,6 +594,7 @@ class Jogo extends Phaser.Scene {
 
     RECURSOS.forEach(({ icone, labelKey, label, cor }, i) => {
       const bx = blocoInicioX + i * (BLOCO_W + BLOCO_GAP);
+      if (labelKey === 'dinheiro') this._dinheiroHudCx = bx + BLOCO_W / 2;
       const bg = this.add.graphics();
       bg.fillStyle(0x1b4332, 1);
       bg.fillRoundedRect(bx, blocoY, BLOCO_W, BLOCO_H, 6);
@@ -2957,9 +2960,10 @@ class Jogo extends Phaser.Scene {
         if (total > 0) {
           estadoJogo.dinheiro += total;
           this.atualizarPainel();
-          // Texto flutuante perto do HUD (canto superior esquerdo)
-          this._mostrarTextoFlutuante(160, 52,
-            `+R$ ${total.toLocaleString('pt-BR')} (receita passiva)`, '#C8A951');
+          this._mostrarTextoFlutuante(
+            this._dinheiroHudCx ?? 300, 80,
+            `+R$ ${total.toLocaleString('pt-BR')}`, '#52b788'
+          );
         }
       },
     });
@@ -3425,26 +3429,31 @@ class Jogo extends Phaser.Scene {
   _verificarObjetivosEcologicos() {
     const obj = this._objetivosAtivados;
 
-    // PSA — Pagamento por Serviços Ambientais: 3 floresta_pioneira conectadas
+    // PSA — 3 floresta_pioneira conectadas
     if (!obj.psa && this._temGrupoConectado('floresta_pioneira', 3)) {
       obj.psa = true;
+      estadoJogo.psa    = true;
       estadoJogo.psaAtivo = true;
-      estadoJogo.receitaPassiva += 10000;
-      this._mostrarToast('🌿 PSA ativado! +R$ 10.000/ciclo de receita passiva');
+      estadoJogo.receitaPassiva += 12000;
+      this._mostrarToast('🌿 PSA ativado! +R$ 12.000/ciclo. +25% chance de aceite dos fazendeiros.');
     }
 
     // Ecoturismo — 3 floresta_secundaria conectadas
     if (!obj.ecoturismo && this._temGrupoConectado('floresta_secundaria', 3)) {
       obj.ecoturismo = true;
-      estadoJogo.receitaPassiva += 20000;
-      this._mostrarToast('🏕️ Ecoturismo desbloqueado! +R$ 20.000/ciclo');
+      estadoJogo.receitaPassiva += 25000;
+      this._mostrarToast('🏕️ Ecoturismo ativado! +R$ 25.000/ciclo.');
     }
 
-    // Corredor Ecológico — 3 floresta_climax conectadas
+    // Corredor Ecológico — 3 floresta_climax conectadas: +40% na receitaSAF de cada clímax
     if (!obj.corredor && this._temGrupoConectado('floresta_climax', 3)) {
       obj.corredor = true;
-      estadoJogo.receitaPassiva += 30000;
-      this._mostrarToast('🌳 Corredor Ecológico formado! +R$ 30.000/ciclo');
+      this.hexagonos.forEach(h => {
+        if (h.tipo === 'floresta_climax' && h.receitaSAF > 0) {
+          h.receitaSAF = Math.round(h.receitaSAF * 1.4);
+        }
+      });
+      this._mostrarToast('🌿 Corredor ecológico completo! Carbono +40% em todos os clímax.');
     }
 
     // Crédito de Carbono — primeiro hex de clímax
@@ -3518,20 +3527,23 @@ class Jogo extends Phaser.Scene {
   _verificarFauna() {
     const f = estadoJogo.fauna;
     const hexos = this.hexagonos;
-    const nClimax    = hexos.filter(h => h.tipo === 'floresta_climax').length;
-    const nSecund    = hexos.filter(h => h.tipo === 'floresta_secundaria').length;
-    const nPioneira  = hexos.filter(h => h.tipo === 'floresta_pioneira').length;
-    const nNascente  = hexos.filter(h => h.tipo === 'nascente_ativa').length;
-    const nTotalFlor = nClimax + nSecund + nPioneira +
-                       hexos.filter(h => h.tipo === 'floresta').length;
+    const nClimax   = hexos.filter(h => h.tipo === 'floresta_climax').length;
+    const nSecund   = hexos.filter(h => h.tipo === 'floresta_secundaria').length;
+    const nNascente = hexos.filter(h => h.tipo === 'nascente_ativa').length;
+    const temSAF    = hexos.some(h => h.tipo === 'saf');
 
-    // Abelha Jataí — 2+ hexágonos de qualquer floresta
-    if (!f.includes('abelha') && nTotalFlor >= 2) this._desbloquearFauna('abelha');
+    // Abelha Jataí — primeiro SAF ativo
+    if (!f.includes('abelha') && temSAF) this._desbloquearFauna('abelha');
 
-    // Cutia — 1 floresta_secundaria ou clímax
-    if (!f.includes('cutia') && (nSecund + nClimax) >= 1) this._desbloquearFauna('cutia');
+    // Cutia — primeira floresta_secundaria
+    if (!f.includes('cutia') && nSecund >= 1) this._desbloquearFauna('cutia');
 
-    // Pacu — 1 nascente_ativa ao lado de floresta (qualquer)
+    // Tucano — 3 hexágonos secundários conectados
+    if (!f.includes('tucano') && this._temGrupoConectado('floresta_secundaria', 3)) {
+      this._desbloquearFauna('tucano');
+    }
+
+    // Pacu — nascente_ativa com vizinho em floresta (qualquer)
     if (!f.includes('pacu') && nNascente >= 1) {
       const temVizinhanca = hexos.some((h, idx) => {
         if (h.tipo !== 'nascente_ativa') return false;
@@ -3544,14 +3556,12 @@ class Jogo extends Phaser.Scene {
       if (temVizinhanca) this._desbloquearFauna('pacu');
     }
 
-    // Tucano — 2+ floresta_secundaria ou clímax
-    if (!f.includes('tucano') && (nSecund + nClimax) >= 2) this._desbloquearFauna('tucano');
-
-    // Anta — 1 floresta_climax
+    // Anta — primeira floresta_climax
     if (!f.includes('anta') && nClimax >= 1) this._desbloquearFauna('anta');
 
-    // Onça-pintada — corredor ecológico ativo (3 clímax conectados)
-    if (!f.includes('onca') && this._objetivosAtivados.corredor) this._desbloquearFauna('onca');
+    // Onça-pintada — 80% do mapa em clímax
+    const pctClimax = nClimax / hexos.length;
+    if (!f.includes('onca') && pctClimax >= 0.8) this._desbloquearFauna('onca');
   }
 
   // -------------------------------------------------------------------------
@@ -3660,6 +3670,10 @@ class Jogo extends Phaser.Scene {
     z.on('pointerdown', () => {
       this._fecharCard();
       this._faunaQueue.shift();
+      if (id === 'onca') {
+        this.time.delayedCall(400, () => this.scene.start('TelaVitoria'));
+        return;
+      }
       if (this._faunaQueue.length > 0) {
         this.time.delayedCall(300, () => this._mostrarProximaFauna());
       }
@@ -3853,6 +3867,100 @@ class Jogo extends Phaser.Scene {
 }
 
 // ---------------------------------------------------------------------------
+// Tela de Vitória
+// ---------------------------------------------------------------------------
+class TelaVitoria extends Phaser.Scene {
+  constructor() { super({ key: 'TelaVitoria' }); }
+
+  create() {
+    const { width, height } = this.scale;
+    const cx = width / 2, cy = height / 2;
+
+    // Fundo
+    const bg = this.add.graphics();
+    bg.fillStyle(0x071a0e, 1);
+    bg.fillRect(0, 0, width, height);
+
+    // Borda dourada decorativa
+    const borda = this.add.graphics();
+    borda.lineStyle(3, 0xC8A951, 1);
+    borda.strokeRect(20, 20, width - 40, height - 40);
+
+    // Emoji onça centralizado
+    this.add.text(cx, cy - 190, '🐆', { fontSize: '90px' }).setOrigin(0.5);
+
+    // Título
+    this.add.text(cx, cy - 90, 'Ecossistema Restaurado!', {
+      fontSize: '36px', color: '#C8A951',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5);
+
+    // ONG e estatísticas
+    const ong = dadosJogo.nomeONG || 'Sua ONG';
+    this.add.text(cx, cy - 42, `${ong} transformou a Amazônia.`, {
+      fontSize: '18px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif',
+    }).setOrigin(0.5);
+
+    const nFauna = estadoJogo.fauna.length;
+    const pctFauna = Math.round((nFauna / FAUNA_CATALOGO.length) * 100);
+    const nClimax  = Math.round(estadoJogo.climax);
+
+    this.add.text(cx, cy + 10,
+      `🌳 ${nClimax}% do mapa em Floresta Clímax\n` +
+      `🐾 ${nFauna}/${FAUNA_CATALOGO.length} espécies desbloqueadas (${pctFauna}%)\n` +
+      `💰 R$ ${estadoJogo.dinheiro.toLocaleString('pt-BR')} em caixa`,
+      {
+        fontSize: '16px', color: '#74c69d',
+        fontFamily: 'Inter, sans-serif', lineSpacing: 10, align: 'center',
+      }
+    ).setOrigin(0.5);
+
+    this.add.text(cx, cy + 130,
+      '"Onde há onça, há ecossistema completo."',
+      {
+        fontSize: '14px', color: '#a8c5b0', fontStyle: 'italic',
+        fontFamily: 'Inter, sans-serif',
+      }
+    ).setOrigin(0.5);
+
+    // Botão jogar novamente
+    const BTN_W = 240, BTN_H = 44;
+    const btnX = cx - BTN_W / 2, btnY = cy + 185;
+    const btnG = this.add.graphics();
+    const desBt = h => {
+      btnG.clear();
+      btnG.fillStyle(h ? 0x9a7d2a : 0x6b551a, 1);
+      btnG.fillRoundedRect(btnX, btnY, BTN_W, BTN_H, 8);
+    };
+    desBt(false);
+
+    this.add.text(cx, btnY + BTN_H / 2, 'Jogar novamente', {
+      fontSize: '15px', color: '#ffffff',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5);
+
+    const z = this.add.zone(cx, btnY + BTN_H / 2, BTN_W, BTN_H)
+      .setInteractive({ useHandCursor: true });
+    z.on('pointerover', () => desBt(true));
+    z.on('pointerout',  () => desBt(false));
+    z.on('pointerdown', () => this.scene.start('TelaInicial'));
+
+    // Partículas de vitória — estrelas simples piscando
+    for (let i = 0; i < 18; i++) {
+      const px = Phaser.Math.Between(40, width - 40);
+      const py = Phaser.Math.Between(40, height - 40);
+      const star = this.add.text(px, py, '✨', { fontSize: '14px' }).setAlpha(0);
+      this.tweens.add({
+        targets: star, alpha: 1, duration: 600,
+        delay: i * 120, yoyo: true, repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Config Phaser
 // ---------------------------------------------------------------------------
 const config = {
@@ -3860,7 +3968,7 @@ const config = {
   width: 1280,
   height: 720,
   backgroundColor: '#0d2818',
-  scene: [TelaInicial, Onboarding1, Onboarding2, Onboarding3, Jogo],
+  scene: [TelaInicial, Onboarding1, Onboarding2, Onboarding3, Jogo, TelaVitoria],
 };
 
 new Phaser.Game(config);
