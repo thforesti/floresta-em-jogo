@@ -1450,117 +1450,265 @@ class Jogo extends Phaser.Scene {
   // =========================================================================
   _cardDialogo(cfg) {
     this._fecharCard();
-    const { nome, perfilLabel, idade, corAvatar, fala, tomFala = 'neutro', botoes = [] } = cfg;
+    const { nome, perfilLabel, idade, corAvatar, fala, tomFala = 'neutro', botoes = [], chance } = cfg;
     const { width, height } = this.scale;
+    const DEPTH = 20;
+    const objs  = [];
 
-    const CARD_W = 600, M = 20, AV = 80, BTN_H_BASE = 46, BTN_H_SUB = 54;
-    const FALA_W = CARD_W - M * 2;
-    const charsPerLine = Math.floor((FALA_W - 32) / 7.5);
-    const nLines = Math.max(2, Math.ceil(fala.length / charsPerLine));
-    const FALA_H = nLines * 20 + 32;
+    // ── Layout constants ──────────────────────────────────────────────────
+    const CARD_W   = 560, M = 24;
+    const HEADER_H = 80, AV = 56;
+    const FOOTER_H = 52;
 
-    const btnsH = botoes.reduce((s, b) => s + (b.sublabel ? BTN_H_SUB : BTN_H_BASE) + 8, 0);
-    const CARD_H = M + AV + M + 10 + FALA_H + M + btnsH + M;
+    // Button height helpers
+    const isPropBtn = (b) => 'icone' in b;
+    const bH = (b) => isPropBtn(b) ? 68 : (b.sublabel ? 54 : 44);
+    const hasProp   = botoes.some(isPropBtn);
+    const btnsH     = botoes.reduce((s, b) => s + bH(b) + 8, 0);
+
+    // Speech bubble height
+    const FALA_W       = CARD_W - M * 2 - 3;
+    const charsPerLine = Math.floor((FALA_W - 26) / 7.2);
+    const nLines       = Math.max(2, Math.ceil((fala.length + 2) / charsPerLine));
+    const FALA_H       = nLines * 22 + 28;
+
+    const PROP_LABEL_H = hasProp ? 30 : 8;
+    const CARD_H = HEADER_H + 20 + FALA_H + 16 + PROP_LABEL_H + btnsH + FOOTER_H;
 
     const cx = width / 2 - CARD_W / 2;
     const cy = Math.max(10, height / 2 - CARD_H / 2);
-    const DEPTH = 20;
-    const objs = [];
 
-    // Overlay
+    // ── Overlay ───────────────────────────────────────────────────────────
     const ov = this.add.graphics().setDepth(DEPTH - 1);
-    ov.fillStyle(0x000000, 0.6);
-    ov.fillRect(0, 0, width, height);
+    ov.fillStyle(0x000000, 0.55); ov.fillRect(0, 0, width, height);
     objs.push(ov);
 
-    // Card fundo
+    // ── Card background ───────────────────────────────────────────────────
     const bg = this.add.graphics().setDepth(DEPTH);
-    bg.fillStyle(0x0d2818, 1);
-    bg.fillRoundedRect(cx, cy, CARD_W, CARD_H, 8);
+    bg.fillStyle(0x122a1c, 1);
+    bg.fillRoundedRect(cx, cy, CARD_W, CARD_H, 16);
     bg.lineStyle(1, 0x2d6a4f, 1);
-    bg.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 8);
+    bg.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 16);
     objs.push(bg);
 
+    // ── Zone 1: Header ────────────────────────────────────────────────────
+    const hdrG = this.add.graphics().setDepth(DEPTH + 0.5);
+    hdrG.fillStyle(0x0d2818, 1);
+    hdrG.fillRoundedRect(cx, cy, CARD_W, HEADER_H, { tl: 16, tr: 16, bl: 0, br: 0 });
+    objs.push(hdrG);
+    const hdrLine = this.add.graphics().setDepth(DEPTH + 0.5);
+    hdrLine.lineStyle(1, 0x1e4030, 1);
+    hdrLine.lineBetween(cx, cy + HEADER_H, cx + CARD_W, cy + HEADER_H);
+    objs.push(hdrLine);
+
     // Avatar
-    const avX = cx + M, avY = cy + M;
-    const avG = this.add.graphics().setDepth(DEPTH + 0.5);
-    avG.fillStyle(corAvatar, 1);
-    avG.fillRoundedRect(avX, avY, AV, AV, 8);
+    const avX = cx + M, avY = cy + (HEADER_H - AV) / 2;
+    const avG = this.add.graphics().setDepth(DEPTH + 1);
+    avG.fillStyle(0x1b4332, 1);
+    avG.fillRoundedRect(avX, avY, AV, AV, 12);
+    avG.lineStyle(1.5, 0x2d6a4f, 1);
+    avG.strokeRoundedRect(avX, avY, AV, AV, 12);
     objs.push(avG);
-    objs.push(this.add.text(avX + AV / 2, avY + AV / 2, (nome[0] || '?').toUpperCase(), {
-      fontSize: '30px', color: '#ffffff', fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(DEPTH + 1));
+    objs.push(this.add.text(avX + AV / 2, avY + AV / 2,
+      (nome[0] ?? '?').toUpperCase(), {
+      fontSize: '22px', color: '#52b788',
+      fontFamily: 'Syne, Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH + 2));
 
-    // Nome + perfil
-    const idX = avX + AV + 16;
-    objs.push(this.add.text(idX, avY + 10, nome, {
-      fontSize: '15px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-    }).setDepth(DEPTH + 1));
-    const sub = [perfilLabel, ...(idade ? [`${idade} anos`] : [])].join(' · ');
-    objs.push(this.add.text(idX, avY + 33, sub, {
-      fontSize: '11px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
-    }).setDepth(DEPTH + 1));
+    // Identity: name
+    const idX = avX + AV + 14;
+    objs.push(this.add.text(idX, avY + 6, nome, {
+      fontSize: '18px', color: '#d8f3dc',
+      fontFamily: 'Syne, Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH + 2));
 
-    // Separador
-    const sepY = cy + M + AV + 8;
-    const sepG = this.add.graphics().setDepth(DEPTH);
-    sepG.lineStyle(1, 0x2d6a4f, 0.5);
-    sepG.lineBetween(cx + M, sepY, cx + CARD_W - M, sepY);
-    objs.push(sepG);
+    // Profile tag
+    const tagLabel = perfilLabel.toUpperCase();
+    const tagW     = Math.max(56, tagLabel.length * 6.0 + 14);
+    const tagG = this.add.graphics().setDepth(DEPTH + 1);
+    tagG.fillStyle(0x1b4332, 1); tagG.fillRoundedRect(idX, avY + 33, tagW, 18, 9);
+    tagG.lineStyle(1, 0x2d6a4f, 1); tagG.strokeRoundedRect(idX, avY + 33, tagW, 18, 9);
+    objs.push(tagG);
+    objs.push(this.add.text(idX + tagW / 2, avY + 42, tagLabel, {
+      fontSize: '9px', color: '#74c69d',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH + 2));
 
-    // Balão de fala
-    const borCors = { positivo: 0x52b788, negativo: 0xC1440E, neutro: 0x2d6a4f };
-    const borCor  = borCors[tomFala] ?? borCors.neutro;
-    const falaY   = sepY + 10;
+    // Age
+    if (idade) {
+      objs.push(this.add.text(idX + tagW + 8, avY + 42, `${idade} anos`, {
+        fontSize: '13px', color: '#52b788', fontFamily: 'Inter, sans-serif',
+      }).setOrigin(0, 0.5).setDepth(DEPTH + 2));
+    }
 
-    const falaG = this.add.graphics().setDepth(DEPTH);
-    falaG.fillStyle(0x1b4332, 0.9);
-    falaG.fillRoundedRect(cx + M, falaY, FALA_W, FALA_H, 6);
-    falaG.fillStyle(borCor, 1);
-    falaG.fillRect(cx + M, falaY + 6, 3, FALA_H - 12);
+    // Chance block (header right)
+    if (chance !== undefined) {
+      const chRX = cx + CARD_W - M;
+      objs.push(this.add.text(chRX, avY + 5, 'CHANCE', {
+        fontSize: '10px', color: '#52b788',
+        fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+      }).setOrigin(1, 0).setDepth(DEPTH + 2));
+      objs.push(this.add.text(chRX, avY + 20, `${Math.round(chance * 100)}%`, {
+        fontSize: '24px', color: '#95d5b2',
+        fontFamily: 'Syne, Inter, sans-serif', fontStyle: 'bold',
+      }).setOrigin(1, 0).setDepth(DEPTH + 2));
+    }
+
+    // ── Zone 2: Speech bubble ─────────────────────────────────────────────
+    const falaY = cy + HEADER_H + 20, falaX = cx + M;
+    const falaG = this.add.graphics().setDepth(DEPTH + 1);
+    falaG.fillStyle(0x1b4332, 1);
+    falaG.fillRoundedRect(falaX + 3, falaY, FALA_W, FALA_H, { tl: 0, tr: 8, bl: 8, br: 8 });
+    falaG.fillStyle(0x52b788, 1);
+    falaG.fillRect(falaX, falaY, 3, FALA_H);
     objs.push(falaG);
+    objs.push(this.add.text(falaX + 3 + 12, falaY + 12, `\u201c${fala}\u201d`, {
+      fontSize: '14px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'italic',
+      wordWrap: { width: FALA_W - 28 }, lineSpacing: 5,
+    }).setDepth(DEPTH + 2));
 
-    objs.push(this.add.text(cx + M + 14, falaY + 12, `"${fala}"`, {
-      fontSize: '13px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
-      fontStyle: 'italic', wordWrap: { width: FALA_W - 28 }, lineSpacing: 4,
-    }).setDepth(DEPTH + 1));
-
-    // Botões
-    let btnY = falaY + FALA_H + M;
-    const BTN_FULL_W = CARD_W - M * 2;
-    botoes.forEach(btn => {
-      const bH = btn.sublabel ? BTN_H_SUB : BTN_H_BASE;
-      const bG = this.add.graphics().setDepth(DEPTH + 1);
-      const corN = btn.cor ?? 0x1b4332, corH = btn.corHover ?? 0x2d6a4f;
-      const draw = h => {
-        bG.clear();
-        bG.fillStyle(btn.desabilitado ? 0x132b1f : (h ? corH : corN), 1);
-        bG.fillRoundedRect(cx + M, btnY, BTN_FULL_W, bH, 6);
-      };
-      draw(false); objs.push(bG);
-
-      objs.push(this.add.text(cx + M + 14, btnY + (btn.sublabel ? 10 : 14), btn.label, {
-        fontSize: '13px', color: btn.desabilitado ? '#4a6a4a' : (btn.corLabel ?? '#d8f3dc'),
+    // ── Zone 3: Buttons / proposals ───────────────────────────────────────
+    let btnY = falaY + FALA_H + 16;
+    if (hasProp) {
+      objs.push(this.add.text(cx + M, btnY, 'ESCOLHA SUA PROPOSTA', {
+        fontSize: '11px', color: '#52b788',
         fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
       }).setDepth(DEPTH + 2));
+    }
+    btnY += PROP_LABEL_H;
 
-      if (btn.sublabel) {
-        objs.push(this.add.text(cx + M + 14, btnY + 30, btn.sublabel, {
-          fontSize: '11px', color: btn.desabilitado ? '#3a5a3a' : '#52b788',
-          fontFamily: 'Inter, sans-serif',
-        }).setDepth(DEPTH + 2));
+    const BTN_W = CARD_W - M * 2;
+    botoes.forEach(btn => {
+      const bh     = bH(btn);
+      const isProp = isPropBtn(btn);
+      const corN   = btn.recomendado ? 0x163828 : (btn.cor ?? 0x0d2818);
+      const corBrd = btn.recomendado ? 0x52b788 : (btn.desabilitado ? 0x1a2e1a : 0x1e4030);
+      const corHov = btn.recomendado ? 0x1d4a30 : (btn.corHover ?? 0x1b4332);
+
+      const bG = this.add.graphics().setDepth(DEPTH + 1);
+      const draw = (hov) => {
+        bG.clear();
+        bG.fillStyle(btn.desabilitado ? 0x0d1e14 : (hov ? corHov : corN), 1);
+        bG.fillRoundedRect(cx + M, btnY, BTN_W, bh, 10);
+        bG.lineStyle(1, btn.desabilitado ? 0x1a2e1a : (hov && !btn.recomendado ? 0x52b788 : corBrd), 1);
+        bG.strokeRoundedRect(cx + M, btnY, BTN_W, bh, 10);
+      };
+      draw(false);
+      objs.push(bG);
+
+      if (isProp) {
+        // Icon square 36×36
+        const ICO = 36, icoX = cx + M + 14, icoY = btnY + (bh - ICO) / 2;
+        const icoG = this.add.graphics().setDepth(DEPTH + 2);
+        icoG.fillStyle(btn.desabilitado ? 0x0d1610 : 0x1b4332, 1);
+        icoG.fillRoundedRect(icoX, icoY, ICO, ICO, 8);
+        icoG.lineStyle(1, btn.desabilitado ? 0x1a2414 : 0x2d6a4f, 1);
+        icoG.strokeRoundedRect(icoX, icoY, ICO, ICO, 8);
+        objs.push(icoG);
+        if (btn.icone) {
+          objs.push(this.add.text(icoX + ICO / 2, icoY + ICO / 2, btn.icone, {
+            fontSize: '18px', fontFamily: 'sans-serif',
+          }).setOrigin(0.5).setDepth(DEPTH + 3));
+        }
+
+        // Body
+        const bodyX = icoX + ICO + 12, bodyW = BTN_W - ICO - 14 - 12 - 92;
+        objs.push(this.add.text(bodyX, btnY + 14, btn.label, {
+          fontSize: '14px', color: btn.desabilitado ? '#3a5040' : (btn.corLabel ?? '#d8f3dc'),
+          fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+          wordWrap: { width: bodyW },
+        }).setDepth(DEPTH + 3));
+        if (btn.sublabel) {
+          objs.push(this.add.text(bodyX, btnY + 36, btn.sublabel, {
+            fontSize: '12px', color: btn.desabilitado ? '#2a4030' : '#74c69d',
+            fontFamily: 'Inter, sans-serif', wordWrap: { width: bodyW },
+          }).setDepth(DEPTH + 3));
+        }
+
+        // Right block: cost + chance
+        const rX = cx + CARD_W - M - 8;
+        if (btn.custo) {
+          objs.push(this.add.text(rX, btnY + 14, btn.custo, {
+            fontSize: '13px', color: btn.desabilitado ? '#3a4030' : '#e76f51',
+            fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+          }).setOrigin(1, 0).setDepth(DEPTH + 3));
+        }
+        if (btn.chanceBase !== undefined) {
+          objs.push(this.add.text(rX, btnY + 34, `${Math.round(btn.chanceBase * 100)}% chance`, {
+            fontSize: '11px', color: btn.desabilitado ? '#2a4030' : '#52b788',
+            fontFamily: 'Inter, sans-serif',
+          }).setOrigin(1, 0).setDepth(DEPTH + 3));
+        }
+      } else {
+        // Simple button
+        const tY = btn.sublabel ? btnY + 12 : btnY + bh / 2;
+        objs.push(this.add.text(cx + M + 14, tY, btn.label, {
+          fontSize: '13px', color: btn.desabilitado ? '#4a6a4a' : (btn.corLabel ?? '#d8f3dc'),
+          fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+        }).setOrigin(0, btn.sublabel ? 0 : 0.5).setDepth(DEPTH + 2));
+        if (btn.sublabel) {
+          objs.push(this.add.text(cx + M + 14, btnY + 32, btn.sublabel, {
+            fontSize: '11px', color: btn.desabilitado ? '#3a5a3a' : '#74c69d',
+            fontFamily: 'Inter, sans-serif',
+          }).setDepth(DEPTH + 2));
+        }
       }
 
       if (!btn.desabilitado && btn.onPress) {
-        const z = this.add.zone(cx + M + BTN_FULL_W / 2, btnY + bH / 2, BTN_FULL_W, bH)
-          .setDepth(DEPTH + 3).setInteractive({ useHandCursor: true });
+        const z = this.add.zone(cx + M + BTN_W / 2, btnY + bh / 2, BTN_W, bh)
+          .setInteractive({ useHandCursor: true }).setDepth(DEPTH + 4);
         z.on('pointerover', () => draw(true));
         z.on('pointerout',  () => draw(false));
         z.on('pointerdown', btn.onPress);
         objs.push(z);
       }
-      btnY += bH + 8;
+      btnY += bh + 8;
     });
+
+    // ── Zone 4: Footer ────────────────────────────────────────────────────
+    const footerY  = cy + CARD_H - FOOTER_H;
+    const ftrLine  = this.add.graphics().setDepth(DEPTH + 1);
+    ftrLine.lineStyle(1, 0x1e4030, 1);
+    ftrLine.lineBetween(cx, footerY, cx + CARD_W, footerY);
+    objs.push(ftrLine);
+
+    const ftrMidY = footerY + FOOTER_H / 2;
+    const nTecNeg = this._contarMembros('tecnico_negociacao');
+    if (nTecNeg > 0) {
+      const t = this.add.text(cx + M, ftrMidY,
+        `Técnico em negociação ativo · +${nTecNeg * 10}% em todas as propostas`, {
+        fontSize: '11px', color: '#52b788', fontFamily: 'Inter, sans-serif',
+      }).setOrigin(0, 0.5).setAlpha(0.7).setDepth(DEPTH + 2);
+      objs.push(t);
+    } else {
+      objs.push(this.add.text(cx + M, ftrMidY,
+        'Sem técnico em negociação · chances reduzidas', {
+        fontSize: '11px', color: '#e76f51', fontFamily: 'Inter, sans-serif',
+      }).setOrigin(0, 0.5).setDepth(DEPTH + 2));
+    }
+
+    // Voltar button (shown when multiple buttons, i.e. player has a real choice)
+    if (botoes.length > 1) {
+      const VW = 80, VH = 28, voltarX = cx + CARD_W - M - VW;
+      const voltarG = this.add.graphics().setDepth(DEPTH + 1);
+      const voltarTxt = this.add.text(voltarX + VW / 2, ftrMidY, 'Voltar', {
+        fontSize: '12px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+      }).setOrigin(0.5).setDepth(DEPTH + 2);
+      const drawV = (hov) => {
+        voltarG.clear();
+        voltarG.lineStyle(1, hov ? 0x52b788 : 0x2d6a4f, 1);
+        voltarG.strokeRoundedRect(voltarX, ftrMidY - VH / 2, VW, VH, 6);
+      };
+      drawV(false);
+      objs.push(voltarG, voltarTxt);
+      const zV = this.add.zone(voltarX + VW / 2, ftrMidY, VW, VH)
+        .setInteractive({ useHandCursor: true }).setDepth(DEPTH + 4);
+      zV.on('pointerover', () => { drawV(true); voltarTxt.setColor('#d8f3dc'); });
+      zV.on('pointerout',  () => { drawV(false); voltarTxt.setColor('#74c69d'); });
+      zV.on('pointerdown', () => { this._fecharCard(); this.selectedIdx = -1; this._desenharSelecao(); });
+      objs.push(zV);
+    }
 
     this.cardObjs = objs;
   }
@@ -1593,12 +1741,14 @@ class Jogo extends Phaser.Scene {
     if (!hex.nomeGarimpeiro) {
       hex.nomeGarimpeiro = NOMES_GARIMPEIROS[Math.floor(Math.random() * NOMES_GARIMPEIROS.length)];
     }
+    const chanceGar = this._calcularChance(hex);
     this._cardDialogo({
       nome:        hex.nomeGarimpeiro,
       perfilLabel: perfil.nome,
       corAvatar:   perfil.corAvatar ?? 0x5a5a5a,
       fala:        perfil.falas?.abertura ?? perfil.descricao,
       tomFala:     'neutro',
+      chance:      chanceGar,
       botoes: [{
         label:    'Apresentar proposta de saída',
         cor:      0x1b4332, corHover: 0x2d6a4f,
@@ -1639,12 +1789,14 @@ class Jogo extends Phaser.Scene {
       const custoAguardar = 5000 + custoExtra;
       const semSaldo      = estadoJogo.dinheiro < custoAguardar;
 
+      const chanceAtual = this._calcularChance(hex);
       this._cardDialogo({
         nome:        hex.nomeGarimpeiro,
         perfilLabel: perfil.nome,
         corAvatar:   perfil.corAvatar ?? 0x5a5a5a,
         fala:        perfil.falas?.recusou ?? 'Não vou sair daqui.',
         tomFala:     'negativo',
+        chance:      chanceAtual,
         botoes: [
           {
             label:        '⏳ Aguardar e tentar novamente',
@@ -1668,6 +1820,7 @@ class Jogo extends Phaser.Scene {
                   corAvatar:   perfil.corAvatar ?? 0x5a5a5a,
                   fala:        perfil.falas?.reabriu ?? 'Fala logo o que quer.',
                   tomFala:     'neutro',
+                  chance:      this._calcularChance(hex),
                   botoes: [{
                     label:   'Apresentar proposta de saída',
                     cor:     0x1b4332, corHover: 0x2d6a4f,
@@ -2856,46 +3009,70 @@ class Jogo extends Phaser.Scene {
     const sem60  = estadoJogo.dinheiro < 60000;
     const sem30  = estadoJogo.dinheiro < 30000;
     const semMud = estadoJogo.mudas < 1000;
+    const nTec   = this._contarMembros('tecnico_negociacao');
+
+    // Compute displayed final chances (base + perfil bonus + técnico)
+    const ch = (base, extra = 0) => Math.min(0.90, base + nTec * 0.10 + extra);
+    const chSAF  = ch(0.55,
+      (pf?.id === 'endividado' ? pf.bonusSAF ?? 0 : 0) +
+      (pf?.id === 'oportunista' && temPSA ? pf.bonusPSA ?? 0 : 0));
+    const chInt  = ch(0.70);
+    const chMan  = ch(0.45);
+    const chRef  = ch(0.65);
+    const chCarb = pf?.id === 'oportunista' ? ch(0.85) : ch(0.55);
 
     const botoes = [
       {
-        label:        '🌾 Propor SAF',
-        sublabel:     sem80 ? 'Saldo insuficiente' : 'R$ 80.000 — gera R$ 10.000/ciclo',
-        cor:          sem80 ? 0x132b1f : 0x1b4332, corHover: 0x2d6a4f,
+        icone:        '🌾',
+        label:        'SAF — Sistema Agroflorestal',
+        sublabel:     sem80 ? 'Saldo insuficiente' : 'Gera R$ 10.000/ciclo',
+        custo:        sem80 ? '— sem saldo' : 'R$ 80.000',
+        chanceBase:   sem80 ? undefined : chSAF,
+        recomendado:  !sem80,
         desabilitado: sem80,
         onPress:      () => this._tentarPropostaFazendeiro(idx, 'saf', tentativas),
       },
       {
-        label:        '🐄 Propor pecuária intensiva',
-        sublabel:     sem20 ? 'Saldo insuficiente' : 'R$ 20.000 — organiza o rebanho',
-        cor:          sem20 ? 0x132b1f : 0x1b4332, corHover: 0x2d6a4f,
+        icone:        '🐄',
+        label:        'Pecuária Organizada',
+        sublabel:     sem20 ? 'Saldo insuficiente' : 'Organiza o rebanho, reduz impacto',
+        custo:        sem20 ? '— sem saldo' : 'R$ 20.000',
+        chanceBase:   sem20 ? undefined : chInt,
         desabilitado: sem20,
         onPress:      () => this._tentarPropostaFazendeiro(idx, 'intensiva', tentativas),
       },
       {
-        label:        '🪵 Propor manejo florestal',
-        sublabel:     sem60 ? 'Saldo insuficiente' : 'R$ 60.000 — gera R$ 5.000/ciclo',
-        cor:          sem60 ? 0x132b1f : 0x1b4332, corHover: 0x2d6a4f,
+        icone:        '🪵',
+        label:        'Manejo Florestal',
+        sublabel:     sem60 ? 'Saldo insuficiente' : 'Gera R$ 5.000/ciclo',
+        custo:        sem60 ? '— sem saldo' : 'R$ 60.000',
+        chanceBase:   sem60 ? undefined : chMan,
         desabilitado: sem60,
         onPress:      () => this._tentarPropostaFazendeiro(idx, 'manejo', tentativas),
       },
     ];
 
     if (verde && temPSA) {
+      const bloq = sem30 || semMud;
       botoes.push({
-        label:        '🌳 Propor reflorestamento nativo',
-        sublabel:     (sem30 || semMud) ? (sem30 ? 'Saldo insuficiente' : 'Mudas insuficientes') : 'R$ 30.000 + 1.000 mudas',
-        cor:          (sem30 || semMud) ? 0x132b1f : 0x1b4332, corHover: 0x2d6a4f,
-        desabilitado: sem30 || semMud,
+        icone:        '🌳',
+        label:        'Reflorestamento Nativo',
+        sublabel:     bloq ? (sem30 ? 'Saldo insuficiente' : 'Mudas insuficientes') : 'R$ 30.000 + 1.000 mudas',
+        custo:        bloq ? '— sem recursos' : 'R$ 30.000',
+        chanceBase:   bloq ? undefined : chRef,
+        desabilitado: bloq,
         onPress:      () => this._tentarPropostaFazendeiro(idx, 'reflorestamento', tentativas),
       });
     }
 
     if (temCC) {
       botoes.push({
-        label:        '💨 Propor conversão para crédito de carbono',
-        sublabel:     sem20 ? 'Saldo insuficiente' : 'R$ 20.000 — floresta pioneira + bônus carbono',
-        cor:          sem20 ? 0x132b1f : 0x1a4060, corHover: 0x2a5a80,
+        icone:        '💨',
+        label:        'Crédito de Carbono',
+        sublabel:     sem20 ? 'Saldo insuficiente' : 'Floresta pioneira + bônus carbono',
+        custo:        sem20 ? '— sem saldo' : 'R$ 20.000',
+        chanceBase:   sem20 ? undefined : chCarb,
+        cor:          sem20 ? undefined : 0x0d2030,
         desabilitado: sem20,
         onPress:      () => this._tentarPropostaFazendeiro(idx, 'carbono', tentativas),
       });
