@@ -94,6 +94,7 @@ function ativarDevMode() {
   dadosJogo.dificuldade = 'medio';
   dadosJogo.saldo       = 1000000;
   estadoJogo.dinheiro   = 1000000;
+  estadoJogo.mudas      = 500;
 }
 
 // ---------------------------------------------------------------------------
@@ -401,13 +402,15 @@ class Onboarding3 extends Phaser.Scene {
 // Tipos de terreno
 // ---------------------------------------------------------------------------
 const TIPOS = {
-  solo:     { label: 'Solo degradado',      emoji: '🟫', cor: 0x8B6914, hex: '#8B6914' },
-  garimpo:  { label: 'Garimpo',             emoji: '⛏️',  cor: 0x6B6B6B, hex: '#6B6B6B' },
-  nascente: { label: 'Nascente degradada',  emoji: '💧', cor: 0x4A90D9, hex: '#4A90D9' },
-  queimada: { label: 'Queimada',            emoji: '🔥', cor: 0xC1440E, hex: '#C1440E' },
-  indigena: { label: 'Área indígena',       emoji: '🪶', cor: 0x7B4FA6, hex: '#7B4FA6' },
-  pecuaria: { label: 'Pecuária/Soja',       emoji: '🐄', cor: 0xC8A951, hex: '#C8A951' },
-  floresta: { label: 'Floresta estabelecida', emoji: '🌳', cor: 0x52b788, hex: '#52b788' },
+  solo:              { label: 'Solo degradado',        emoji: '🟫', cor: 0x8B6914, hex: '#8B6914' },
+  garimpo:           { label: 'Garimpo',               emoji: '⛏️',  cor: 0x6B6B6B, hex: '#6B6B6B' },
+  nascente:          { label: 'Nascente degradada',    emoji: '💧', cor: 0x4A90D9, hex: '#4A90D9' },
+  queimada:          { label: 'Queimada',              emoji: '🔥', cor: 0xC1440E, hex: '#C1440E' },
+  indigena:          { label: 'Área indígena',         emoji: '🪶', cor: 0x7B4FA6, hex: '#7B4FA6' },
+  pecuaria:          { label: 'Pecuária/Soja',         emoji: '🐄', cor: 0xC8A951, hex: '#C8A951' },
+  floresta:          { label: 'Floresta estabelecida', emoji: '🌳', cor: 0x52b788, hex: '#52b788' },
+  solo_preparado:    { label: 'Solo Preparado',        emoji: '⛏️',  cor: 0x5C4A1E, hex: '#5C4A1E' },
+  floresta_pioneira: { label: 'Floresta Pioneira',     emoji: '🌿', cor: 0x74c69d, hex: '#74c69d' },
 };
 
 const DISTRIBUICAO = {
@@ -474,7 +477,7 @@ const DESCRICOES = {
 };
 
 // ---------------------------------------------------------------------------
-// Jogo — mapa hexagonal + painel de recursos + interação
+// Jogo — mapa hexagonal + painel de recursos + interação + mecânicas
 // ---------------------------------------------------------------------------
 class Jogo extends Phaser.Scene {
   constructor() { super({ key: 'Jogo' }); }
@@ -482,11 +485,11 @@ class Jogo extends Phaser.Scene {
   create() {
     const { width, height } = this.scale;
 
-    // Inicializa estado
+    // Inicializa estado (mudas já pode ter sido ajustado pelo devMode)
     estadoJogo.dinheiro = dadosJogo.saldo;
     estadoJogo.agua     = null;
     estadoJogo.equipe   = [];
-    estadoJogo.mudas    = 0;
+    if (!DEV_MODE) estadoJogo.mudas = 0;
     estadoJogo.energia  = null;
     estadoJogo.climax   = 0;
 
@@ -590,10 +593,11 @@ class Jogo extends Phaser.Scene {
     const offX  = (width  - gridW) / 2 + halfW - Math.min(...xs);
     const offY  = HUD_H + (height - HUD_H - gridH) / 2 + R - Math.min(...ys);
 
-    // Camadas de desenho (ordem de profundidade)
-    const fillG  = this.add.graphics();          // fills estáticos
-    this.hoverG  = this.add.graphics().setDepth(1); // overlay de hover
-    this.selectG = this.add.graphics().setDepth(2); // borda de seleção
+    // Camadas de desenho (profundidade crescente)
+    const fillG        = this.add.graphics().setDepth(0); // fills iniciais (estático)
+    this.hexChangeG    = this.add.graphics().setDepth(1); // fills de hexs modificados
+    this.hoverG        = this.add.graphics().setDepth(2); // overlay de hover
+    this.selectG       = this.add.graphics().setDepth(3); // borda de seleção
 
     hexes.forEach(({ x, y, row, col }, idx) => {
       const tipo = tipos[idx];
@@ -606,7 +610,6 @@ class Jogo extends Phaser.Scene {
         return { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) };
       });
 
-      // Desenha fill + borda estática
       fillG.fillStyle(info.cor, 1);
       fillG.beginPath();
       fillG.moveTo(pts[0].x, pts[0].y);
@@ -621,15 +624,14 @@ class Jogo extends Phaser.Scene {
       fillG.closePath();
       fillG.strokePath();
 
-      // Emoji (depth 1 para ficar acima do hoverG)
-      this.add.text(cx, cy, info.emoji, {
+      // Emoji — referência armazenada para atualização dinâmica
+      const emojiTxt = this.add.text(cx, cy, info.emoji, {
         fontSize: '20px', fontFamily: 'sans-serif',
-      }).setOrigin(0.5).setDepth(3);
+      }).setOrigin(0.5).setDepth(4);
 
-      // Polígono de hit (coordenadas absolutas)
       const polygon = new Phaser.Geom.Polygon(pts.flatMap(p => [p.x, p.y]));
 
-      this.hexagonos.push({ tipo, info, row, col, cx, cy, pts, polygon });
+      this.hexagonos.push({ tipo, info, row, col, cx, cy, pts, polygon, emojiTxt, bloqueado: false });
     });
 
     // -----------------------------------------------------------------------
@@ -657,7 +659,6 @@ class Jogo extends Phaser.Scene {
   }
 
   _onClick(pointer) {
-    // Ignora cliques dentro do menu aberto
     if (this.menuBounds) {
       const { x, y, w, h } = this.menuBounds;
       if (pointer.x >= x && pointer.x <= x + w &&
@@ -668,9 +669,18 @@ class Jogo extends Phaser.Scene {
       Phaser.Geom.Polygon.Contains(h.polygon, pointer.x, pointer.y));
 
     if (idx >= 0) {
+      const hex = this.hexagonos[idx];
+      if (hex.bloqueado) return;
+
       this.selectedIdx = idx;
       this._desenharSelecao();
-      this._abrirMenu(idx);
+
+      // Despacha para o builder correto por tipo
+      switch (hex.tipo) {
+        case 'solo':           this._menuSoloDegradado(idx); break;
+        case 'solo_preparado': this._menuSoloPreparado(idx); break;
+        default:               this._abrirMenu(idx);
+      }
     } else {
       this.selectedIdx = -1;
       this._desenharSelecao();
@@ -705,33 +715,203 @@ class Jogo extends Phaser.Scene {
     this.selectG.strokePath();
   }
 
+  // Redesenha o fill de um hexágono no layer de mudanças
+  _mudarEstadoHex(idx, novoTipo) {
+    const hex  = this.hexagonos[idx];
+    const info = TIPOS[novoTipo];
+    hex.tipo = novoTipo;
+    hex.info = info;
+
+    this.hexChangeG.fillStyle(info.cor, 1);
+    this.hexChangeG.beginPath();
+    this.hexChangeG.moveTo(hex.pts[0].x, hex.pts[0].y);
+    for (let i = 1; i < 6; i++) this.hexChangeG.lineTo(hex.pts[i].x, hex.pts[i].y);
+    this.hexChangeG.closePath();
+    this.hexChangeG.fillPath();
+
+    this.hexChangeG.lineStyle(2, 0x2d6a4f, 1);
+    this.hexChangeG.beginPath();
+    this.hexChangeG.moveTo(hex.pts[0].x, hex.pts[0].y);
+    for (let i = 1; i < 6; i++) this.hexChangeG.lineTo(hex.pts[i].x, hex.pts[i].y);
+    this.hexChangeG.closePath();
+    this.hexChangeG.strokePath();
+
+    hex.emojiTxt.setText(info.emoji);
+  }
+
   // -------------------------------------------------------------------------
-  // Menu flutuante
+  // Timer visual
   // -------------------------------------------------------------------------
-  _abrirMenu(idx) {
+  _iniciarTimer(idx, durSeg, onComplete) {
+    const hex     = this.hexagonos[idx];
+    hex.bloqueado = true;
+
+    const BAR_W = 62, BAR_H = 6;
+    const bx = hex.cx - BAR_W / 2;
+    const by = hex.cy + 34;
+
+    const bgG = this.add.graphics().setDepth(5);
+    bgG.fillStyle(0x1b4332, 1);
+    bgG.fillRoundedRect(bx, by, BAR_W, BAR_H, 3);
+
+    const barG  = this.add.graphics().setDepth(6);
+    const totalMs = durSeg * 1000;
+    const startTime = this.time.now;
+    let   concluido = false;
+
+    const evt = this.time.addEvent({
+      delay: 50, loop: true,
+      callback: () => {
+        if (concluido) return;
+        const pct = Math.max(0, 1 - (this.time.now - startTime) / totalMs);
+        barG.clear();
+        barG.fillStyle(0x52b788, 1);
+        if (pct > 0) barG.fillRoundedRect(bx, by, BAR_W * pct, BAR_H, 3);
+      },
+    });
+
+    this.time.delayedCall(totalMs, () => {
+      concluido = true;
+      evt.remove();
+      bgG.destroy();
+      barG.destroy();
+      hex.bloqueado = false;
+      onComplete();
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Menus por tipo
+  // -------------------------------------------------------------------------
+  _menuSoloDegradado(idx) {
+    const custo    = 15000;
+    const semSaldo = estadoJogo.dinheiro < custo;
+
+    this._abrirMenu(idx, {
+      titulo:    'Solo Degradado',
+      descricao: DESCRICOES['solo'],
+      acoes: [{
+        label:       'Preparar a terra',
+        custoStr:    `R$ ${custo.toLocaleString('pt-BR')}`,
+        desabilitado: semSaldo,
+        aviso:       semSaldo ? 'Saldo insuficiente' : null,
+        onPress: () => {
+          estadoJogo.dinheiro -= custo;
+          this.atualizarPainel();
+          this._fecharMenu();
+          this.selectedIdx = -1;
+          this._desenharSelecao();
+
+          const dur = DEV_MODE ? 5 : 30;
+          this._iniciarTimer(idx, dur, () => {
+            this._mudarEstadoHex(idx, 'solo_preparado');
+            this._menuSoloPreparado(idx);
+          });
+        },
+      }],
+    });
+  }
+
+  _menuSoloPreparado(idx) {
+    const custo1     = 10000;
+    const mudasReq   = 1000;
+    const semSaldo1  = estadoJogo.dinheiro < custo1;
+    const semMudas1  = estadoJogo.mudas < mudasReq;
+    const bloq1      = semSaldo1 || semMudas1;
+    const aviso1     = semMudas1
+      ? `Você precisa de ${mudasReq.toLocaleString('pt-BR')} mudas. Instale um viveiro primeiro.`
+      : semSaldo1 ? 'Saldo insuficiente' : null;
+
+    this._abrirMenu(idx, {
+      titulo:    'Solo Preparado',
+      descricao: 'Escolha como restaurar esta área.',
+      acoes: [
+        {
+          label:        '🌿 Restaurar com vegetação nativa',
+          custoStr:     `R$ ${custo1.toLocaleString('pt-BR')} + ${mudasReq.toLocaleString('pt-BR')} mudas`,
+          desabilitado: bloq1,
+          aviso:        aviso1,
+          onPress: () => {
+            estadoJogo.dinheiro -= custo1;
+            estadoJogo.mudas    -= mudasReq;
+            this.atualizarPainel();
+            this._fecharMenu();
+            this.selectedIdx = -1;
+            this._desenharSelecao();
+
+            const dur = DEV_MODE ? 10 : 90;
+            this._iniciarTimer(idx, dur, () => {
+              if (Math.random() < 0.6) {
+                this._mudarEstadoHex(idx, 'floresta_pioneira');
+              } else {
+                this._mudarEstadoHex(idx, 'solo');
+                this._mostrarCartaoFalha(idx,
+                  'O plantio não pegou. O solo ainda estava instável. Tente novamente.');
+              }
+            });
+          },
+        },
+        {
+          label: '🌾 Implementar Sistema Agroflorestal (SAF)', custoStr: 'R$ 80.000',
+          desabilitado: false, aviso: null,
+          onPress: () => this._mostrarToast('Em breve — funcionalidade em desenvolvimento'),
+        },
+        {
+          label: '🪴 Criar viveiro de mudas', custoStr: 'R$ 50.000',
+          desabilitado: false, aviso: null,
+          onPress: () => this._mostrarToast('Em breve — funcionalidade em desenvolvimento'),
+        },
+        {
+          label: '🪵 Área de Manejo Florestal', custoStr: 'R$ 60.000',
+          desabilitado: false, aviso: null,
+          onPress: () => this._mostrarToast('Em breve — funcionalidade em desenvolvimento'),
+        },
+      ],
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Menu flutuante genérico
+  // -------------------------------------------------------------------------
+  _abrirMenu(idx, config = {}) {
     this._fecharMenu();
 
-    const hex    = this.hexagonos[idx];
-    const acoes  = ACOES[hex.tipo]   ?? [];
-    const desc   = DESCRICOES[hex.tipo] ?? '';
+    const hex      = this.hexagonos[idx];
+    const titulo   = config.titulo   ?? hex.info.label;
+    const descricao = config.descricao ?? (DESCRICOES[hex.tipo] ?? '');
+    const acoes    = config.acoes    ?? (ACOES[hex.tipo] ?? []).map(({ label, custo }) => ({
+      label,
+      custoStr:     custo === 0 ? 'Gratuito' : `R$ ${custo.toLocaleString('pt-BR')}`,
+      desabilitado: false,
+      aviso:        null,
+      onPress: () => console.log(`[Jogo] ${label} [${hex.row},${hex.col}]`),
+    }));
 
-    const MENU_W     = 260;
-    const MENU_PAD   = 16;
-    const TITLE_H    = 68;   // área título + subtítulo
-    const ACTION_H   = 38;
-    const ACTION_GAP = 8;
-    const BOT_PAD    = 14;
-    const DEPTH      = 10;
+    const MENU_W   = 280;
+    const MENU_PAD = 16;
+    const TITLE_H  = 72;   // cabeçalho + separador
+    const ACTION_H = 50;   // altura do botão (duas linhas: label + custo)
+    const AVISO_H  = 20;
+    const GAP      = 10;   // espaço entre botões
+    const BOT_PAD  = 16;
+    const DEPTH    = 10;
 
-    const menuH = TITLE_H + acoes.length * (ACTION_H + ACTION_GAP) - ACTION_GAP + BOT_PAD;
+    // Altura dinâmica
+    let menuH = TITLE_H + BOT_PAD;
+    acoes.forEach((a, i) => {
+      menuH += ACTION_H;
+      if (a.aviso) menuH += 4 + AVISO_H;
+      if (i < acoes.length - 1) menuH += GAP;
+    });
 
-    // Posição: tenta direita, depois esquerda
+    // Posição — tenta à direita, depois à esquerda, depois clamp
     let mx = hex.cx + 44;
     if (mx + MENU_W > this.scale.width - 8) mx = hex.cx - 44 - MENU_W;
+    mx = Math.max(8, Math.min(mx, this.scale.width - MENU_W - 8));
 
     let my = hex.cy - menuH / 2;
-    if (my < 78)                              my = 78;
-    if (my + menuH > this.scale.height - 8)  my = this.scale.height - 8 - menuH;
+    if (my < 78) my = 78;
+    if (my + menuH > this.scale.height - 8) my = this.scale.height - 8 - menuH;
 
     this.menuBounds = { x: mx, y: my, w: MENU_W, h: menuH };
     const objs = [];
@@ -744,23 +924,21 @@ class Jogo extends Phaser.Scene {
     bgG.strokeRoundedRect(mx, my, MENU_W, menuH, 8);
     objs.push(bgG);
 
-    // Título do tipo
-    objs.push(this.add.text(mx + MENU_PAD, my + 14, hex.info.label, {
+    // Título
+    objs.push(this.add.text(mx + MENU_PAD, my + 14, titulo, {
       fontSize: '16px', color: '#d8f3dc',
       fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
     }).setDepth(DEPTH));
 
     // Descrição
-    objs.push(this.add.text(mx + MENU_PAD, my + 36, desc, {
-      fontSize: '12px', color: '#74c69d',
-      fontFamily: 'Inter, sans-serif',
-      wordWrap: { width: MENU_W - MENU_PAD * 2 - 20 },
+    objs.push(this.add.text(mx + MENU_PAD, my + 36, descricao, {
+      fontSize: '12px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+      wordWrap: { width: MENU_W - MENU_PAD * 2 - 24 },
     }).setDepth(DEPTH));
 
-    // Botão fechar (X)
+    // Fechar
     const closeTxt = this.add.text(mx + MENU_W - MENU_PAD, my + 14, '✕', {
-      fontSize: '14px', color: '#74c69d',
-      fontFamily: 'Inter, sans-serif',
+      fontSize: '14px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
     }).setOrigin(1, 0).setDepth(DEPTH).setInteractive({ useHandCursor: true });
     closeTxt.on('pointerover',  () => closeTxt.setColor('#d8f3dc'));
     closeTxt.on('pointerout',   () => closeTxt.setColor('#74c69d'));
@@ -771,49 +949,64 @@ class Jogo extends Phaser.Scene {
     });
     objs.push(closeTxt);
 
-    // Divisor
+    // Separador
     const divG = this.add.graphics().setDepth(DEPTH);
-    divG.lineStyle(1, 0x2d6a4f, 0.6);
-    divG.lineBetween(mx + MENU_PAD, my + TITLE_H - 6,
-                     mx + MENU_W - MENU_PAD, my + TITLE_H - 6);
+    divG.lineStyle(1, 0x2d6a4f, 0.7);
+    divG.lineBetween(mx + MENU_PAD, my + TITLE_H - 4,
+                     mx + MENU_W - MENU_PAD, my + TITLE_H - 4);
     objs.push(divG);
 
-    // Botões de ação
-    acoes.forEach(({ label, custo }, i) => {
-      const ay = my + TITLE_H + i * (ACTION_H + ACTION_GAP);
+    let ay = my + TITLE_H;
+    acoes.forEach(({ label, custoStr, desabilitado, aviso, onPress }, i) => {
+      // *** captura o valor atual de ay para a closure — evita closure-em-loop ***
+      const buttonY = ay;
       const bx = mx + MENU_PAD;
       const bw = MENU_W - MENU_PAD * 2;
-      const bh = ACTION_H;
 
       const btnG = this.add.graphics().setDepth(DEPTH);
       const desenhaBtn = (hover) => {
         btnG.clear();
-        btnG.fillStyle(hover ? 0x2d6a4f : 0x1b4332, 1);
-        btnG.fillRoundedRect(bx, ay, bw, bh, 6);
+        btnG.fillStyle(desabilitado ? 0x132b1f : (hover ? 0x2d6a4f : 0x1b4332), 1);
+        btnG.fillRoundedRect(bx, buttonY, bw, ACTION_H, 6);
       };
       desenhaBtn(false);
       objs.push(btnG);
 
-      objs.push(this.add.text(bx + 10, ay + bh / 2, label, {
-        fontSize: '13px', color: '#d8f3dc',
+      // Label — linha superior do botão
+      objs.push(this.add.text(bx + 10, buttonY + 14, label, {
+        fontSize: '13px', color: desabilitado ? '#4a6b5a' : '#d8f3dc',
         fontFamily: 'Inter, sans-serif',
       }).setOrigin(0, 0.5).setDepth(DEPTH));
 
-      const custoStr = custo === 0 ? 'Gratuito' : `R$ ${custo.toLocaleString('pt-BR')}`;
-      objs.push(this.add.text(bx + bw - 10, ay + bh / 2, custoStr, {
-        fontSize: '12px', color: '#52b788',
-        fontFamily: 'Inter, sans-serif',
-      }).setOrigin(1, 0.5).setDepth(DEPTH));
+      // Custo — linha inferior do botão (sem sobreposição com o label)
+      if (custoStr) {
+        objs.push(this.add.text(bx + 10, buttonY + 34, custoStr, {
+          fontSize: '11px', color: desabilitado ? '#2d6a4f' : '#52b788',
+          fontFamily: 'Inter, sans-serif',
+        }).setOrigin(0, 0.5).setDepth(DEPTH));
+      }
 
-      const zone = this.add.zone(bx + bw / 2, ay + bh / 2, bw, bh)
-        .setDepth(DEPTH).setInteractive({ useHandCursor: true });
-      zone.on('pointerover',  () => desenhaBtn(true));
-      zone.on('pointerout',   () => desenhaBtn(false));
-      zone.on('pointerdown',  () => {
-        // placeholder — lógica de execução nas próximas fases
-        console.log(`[Jogo] ação: ${label} | custo: R$${custo} | hex: ${hex.tipo} [${hex.row},${hex.col}]`);
-      });
-      objs.push(zone);
+      if (!desabilitado) {
+        const zone = this.add.zone(bx + bw / 2, buttonY + ACTION_H / 2, bw, ACTION_H)
+          .setDepth(DEPTH).setInteractive({ useHandCursor: true });
+        zone.on('pointerover', () => desenhaBtn(true));
+        zone.on('pointerout',  () => desenhaBtn(false));
+        zone.on('pointerdown', onPress);
+        objs.push(zone);
+      }
+
+      ay += ACTION_H;
+
+      if (aviso) {
+        objs.push(this.add.text(bx + 8, ay + 4, aviso, {
+          fontSize: '11px', color: desabilitado ? '#e76f51' : '#74c69d',
+          fontFamily: 'Inter, sans-serif',
+          wordWrap: { width: bw - 16 },
+        }).setDepth(DEPTH));
+        ay += 4 + AVISO_H;
+      }
+
+      if (i < acoes.length - 1) ay += GAP;
     });
 
     this.menuObjs = objs;
@@ -823,6 +1016,60 @@ class Jogo extends Phaser.Scene {
     this.menuObjs.forEach(o => o.destroy());
     this.menuObjs   = [];
     this.menuBounds = null;
+  }
+
+  // -------------------------------------------------------------------------
+  // Cartão de falha e toast
+  // -------------------------------------------------------------------------
+  _mostrarCartaoFalha(idx, msg) {
+    const hex    = this.hexagonos[idx];
+    const CARD_W = 280, DEPTH = 10;
+
+    let cx = hex.cx + 44;
+    if (cx + CARD_W > this.scale.width - 8) cx = hex.cx - 44 - CARD_W;
+
+    const tituloTxt  = '⚠️ Falha no plantio';
+    const objs = [];
+
+    const bgG = this.add.graphics().setDepth(DEPTH);
+
+    // Altura calculada com wordWrap aproximado
+    const CARD_H = 90;
+    let cy = hex.cy - CARD_H / 2;
+    if (cy < 78) cy = 78;
+    if (cy + CARD_H > this.scale.height - 8) cy = this.scale.height - 8 - CARD_H;
+
+    bgG.fillStyle(0x3d1a0a, 1);
+    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 8);
+    bgG.lineStyle(1.5, 0xc1440e, 1);
+    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 8);
+    objs.push(bgG);
+
+    objs.push(this.add.text(cx + 14, cy + 14, tituloTxt, {
+      fontSize: '14px', color: '#e76f51',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 14, cy + 38, msg, {
+      fontSize: '11px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
+      wordWrap: { width: CARD_W - 28 },
+    }).setDepth(DEPTH));
+
+    const fechar = () => objs.forEach(o => o.destroy());
+    this.time.delayedCall(4000, fechar);
+    this.input.once('pointerdown', fechar);
+  }
+
+  _mostrarToast(msg) {
+    const txt = this.add.text(this.scale.width / 2, this.scale.height - 30, msg, {
+      fontSize: '13px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
+      backgroundColor: '#1b4332', padding: { x: 14, y: 8 },
+    }).setOrigin(0.5, 1).setDepth(20);
+
+    this.tweens.add({
+      targets: txt, alpha: 0, delay: 1500, duration: 500,
+      onComplete: () => txt.destroy(),
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -839,6 +1086,11 @@ class Jogo extends Phaser.Scene {
   atualizarHUD(key) {
     if (this.hudTextos[key]) this.hudTextos[key].setText(this._formatarRecurso(key));
     if (key === 'climax') this._atualizarBarra();
+  }
+
+  // Atualiza todos os blocos do painel de uma vez
+  atualizarPainel() {
+    Object.keys(this.hudTextos).forEach(key => this.atualizarHUD(key));
   }
 
   _atualizarBarra() {
