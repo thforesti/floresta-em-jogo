@@ -3345,461 +3345,11 @@ class Jogo extends Phaser.Scene {
   // =========================================================================
 
   _criarPainelLateral() {
-    const { width, height } = this.scale;
-    const PX = width - PANEL_W, PY = 64, PH = height - 64;
-
-    // Fundo fixo
-    const bg = this.add.graphics().setDepth(14);
-    bg.fillStyle(0x0d2818, 1);
-    bg.fillRect(PX, PY, PANEL_W, PH);
-    bg.lineStyle(1, 0x1e4030, 1);
-    bg.lineBetween(PX, PY, PX, PY + PH);
-
-    this._redesenharPainel();
+    this.criarPainelHTML();
   }
 
   _redesenharPainel() {
-    // Destroi conteúdo anterior
-    this._painelConteudoObjs.forEach(o => { if (o && o.active) o.destroy(); });
-    this._painelConteudoObjs = [];
-
-    const { width, height } = this.scale;
-    const PX = width - PANEL_W, PY = 64, PH = height - 64;
-    const PAD = 10, CW = PANEL_W - PAD * 2;
-    const DEPTH = 15;
-    const LIMIT_Y = PY + PH - 6;   // não renderiza além daqui
-    const objs = this._painelConteudoObjs;
-
-    let y = PY + 6;
-
-    const push = (o) => { objs.push(o); return o; };
-
-    // Verifica se ainda cabe
-    const cabe = (h) => (y + h) <= LIMIT_Y;
-
-    // ── Título de seção clicável ──────────────────────────────────────────
-    const secHeader = (secIdx, icon, label) => {
-      if (!cabe(26)) return false;
-      const H = 26;
-      const bg2 = this.add.graphics().setDepth(DEPTH);
-      bg2.fillStyle(0x122a1c, 1);
-      bg2.fillRect(PX, y, PANEL_W, H);
-      bg2.lineStyle(1, 0x1e4030, 0.8);
-      bg2.lineBetween(PX, y + H, PX + PANEL_W, y + H);
-      push(bg2);
-      const arrow = this._secoesAbertas[secIdx] ? '▾' : '▸';
-      push(this.add.text(PX + 8, y + H / 2, `${arrow} ${icon} ${label.toUpperCase()}`, {
-        fontSize: '11px', color: '#52b788',
-        fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-      }).setOrigin(0, 0.5).setDepth(DEPTH + 1));
-      const z = this.add.zone(PX + PANEL_W / 2, y + H / 2, PANEL_W, H)
-        .setInteractive({ useHandCursor: true }).setDepth(DEPTH + 2);
-      z.on('pointerdown', () => {
-        this._secoesAbertas[secIdx] = !this._secoesAbertas[secIdx];
-        this._redesenharPainel();
-      });
-      push(z);
-      y += H + 2;
-      return true;
-    };
-
-    // ── Linha de texto simples ────────────────────────────────────────────
-    const txtLine = (txt, cor = '#d8f3dc', size = '12px', bold = false) => {
-      if (!cabe(15)) return;
-      const t = push(this.add.text(PX + PAD, y, txt, {
-        fontSize: size, color: cor,
-        fontFamily: 'Inter, sans-serif', fontStyle: bold ? 'bold' : 'normal',
-        wordWrap: { width: CW },
-      }).setDepth(DEPTH + 1));
-      y += Math.min(t.height, 32) + 2;
-    };
-
-    // ── Barra de progresso ────────────────────────────────────────────────
-    const progressBar = (label, cur, max) => {
-      if (!cabe(28)) return;
-      const pct  = max > 0 ? Math.min(1, cur / max) : 0;
-      const done = pct >= 1;
-      const cor  = done ? '#52b788' : '#74c69d';
-      if (!cabe(15)) return;
-      // Label + count right-aligned
-      push(this.add.text(PX + PAD, y, `${done ? '✅ ' : ''}${label}`, {
-        fontSize: '10px', color: cor,
-        fontFamily: 'Inter, sans-serif',
-      }).setDepth(DEPTH + 1));
-      push(this.add.text(PX + PANEL_W - PAD, y, `${cur}/${max}`, {
-        fontSize: '10px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
-      }).setOrigin(1, 0).setDepth(DEPTH + 1));
-      y += 14;
-      if (!done && cabe(8)) {
-        const barBg = push(this.add.graphics().setDepth(DEPTH + 1));
-        barBg.fillStyle(0x1e4030, 1);
-        barBg.fillRoundedRect(PX + PAD, y, CW, 4, 2);
-        if (pct > 0) { barBg.fillStyle(0x52b788, 1); barBg.fillRoundedRect(PX + PAD, y, CW * pct, 4, 2); }
-        y += 6;
-      }
-    };
-
-    // =====================================================================
-    // Seção 1 — Receitas Ativas
-    // =====================================================================
-    if (!secHeader(0, '💰', 'Receitas Ativas')) return;
-    if (this._secoesAbertas[0]) {
-      const receitas = [];
-      this.hexagonos.forEach(h => {
-        if (h.receitaSAF > 0) {
-          const rotulo = h.tipo === 'saf' ? 'SAF' : h.tipo === 'manejo' ? 'Manejo' : h.tipo === 'floresta_climax' ? 'Carbono' : 'Receita';
-          const ex = receitas.find(r => r.label === rotulo);
-          if (ex) { ex.valor += h.receitaSAF; ex.n++; }
-          else     receitas.push({ label: rotulo, valor: h.receitaSAF, n: 1 });
-        }
-      });
-      if (estadoJogo.psaAtivo) receitas.push({ label: 'PSA', valor: 12000, n: 0 });
-      if (this._objetivosAtivados?.ecoturismo) receitas.push({ label: 'Ecoturismo', valor: 25000, n: 0 });
-
-      if (receitas.length === 0) {
-        txtLine('Nenhuma receita ativa ainda.', '#74c69d', '10px');
-      } else {
-        let total = 0;
-        receitas.forEach(r => {
-          const lbl = r.n > 1 ? `${r.label} ×${r.n}` : r.label;
-          txtLine(`${lbl} — R$ ${r.valor.toLocaleString('pt-BR')}/ciclo`, '#d8f3dc', '10px');
-          total += r.valor;
-        });
-        if (estadoJogo.receitaPassiva > 0) total += estadoJogo.receitaPassiva;
-        txtLine(`Total: R$ ${total.toLocaleString('pt-BR')}/ciclo`, '#52b788', '10px', true);
-      }
-      y += 4;
-    }
-
-    // =====================================================================
-    // Seção 2 — Parcerias
-    // =====================================================================
-    if (!secHeader(1, '🤝', 'Parcerias')) return;
-    if (this._secoesAbertas[1]) {
-      let temP = false;
-      this.hexagonos.forEach(h => {
-        if (h.parceiriaPec && h.perfilFazendeiro) {
-          const t = { saf: 'SAF', reflorestamento: 'Reflorest.', manejo: 'Manejo', intensiva: 'Intensiva' }[h.parceiriaPec] ?? h.parceiriaPec;
-          txtLine(`🐄 ${h.perfilFazendeiro.nomePropio} — ${t}`, '#C8A951', '10px');
-          temP = true;
-        }
-      });
-      this.hexagonos.filter(h => h.tipo === 'indigena').forEach(h => {
-        const cor = h.semaforoIndigena === 'verde' ? '#52b788' : h.semaforoIndigena === 'amarelo' ? '#C8A951' : '#e76f51';
-        const st  = h.semaforoIndigena === 'verde' ? 'Aliados' : h.semaforoIndigena === 'amarelo' ? 'Em diálogo' : 'Sem contato';
-        txtLine(`🪶 Indígenas — ${st}`, cor, '10px');
-        temP = true;
-      });
-      const nN = this.hexagonos.filter(h => h.tipo === 'garimpo_neutralizado').length;
-      if (nN > 0) { txtLine(`⛏️ ${nN} garimpo(s) neutralizado(s)`, '#74c69d', '10px'); temP = true; }
-      if (!temP) txtLine('Nenhuma parceria estabelecida.', '#74c69d', '10px');
-      y += 4;
-    }
-
-    // =====================================================================
-    // Seção 3 — Objetivos
-    // =====================================================================
-    if (!secHeader(2, '🎯', 'Objetivos')) return;
-    if (this._secoesAbertas[2]) {
-      // PSA — 3 pioneiras conectadas
-      if (this._objetivosAtivados?.psa) {
-        txtLine('✅ PSA — 3 pioneiras conectadas', '#52b788', '10px');
-      } else {
-        progressBar('PSA — pioneiras conectadas', this._tamanhoMaiorGrupo('floresta_pioneira'), 3);
-      }
-      // Ecoturismo — 3 secundárias
-      if (this._objetivosAtivados?.ecoturismo) {
-        txtLine('✅ Ecoturismo — 3 secundárias', '#52b788', '10px');
-      } else {
-        progressBar('Ecoturismo — secundárias', this._tamanhoMaiorGrupo('floresta_secundaria'), 3);
-      }
-      // Corredor — 3 clímax
-      if (this._objetivosAtivados?.corredor) {
-        txtLine('✅ Corredor — 3 clímax', '#52b788', '10px');
-      } else {
-        progressBar('Corredor — clímax', this._tamanhoMaiorGrupo('floresta_climax'), 3);
-      }
-      // Vitória — 80% clímax
-      const nC   = this.hexagonos.filter(h => h.tipo === 'floresta_climax').length;
-      const meta  = Math.ceil(this.hexagonos.length * 0.8);
-      progressBar('Floresta Clímax (80%)', nC, meta);
-      y += 4;
-    }
-
-    // =====================================================================
-    // Seção 4 — Fauna
-    // =====================================================================
-    if (!secHeader(3, '🦎', 'Fauna')) return;
-    if (this._secoesAbertas[3]) {
-      const CELL = 78, GAP = 4;
-      const cols  = 3;
-      const cellW = Math.floor((CW - GAP * (cols - 1)) / cols);
-      const cellH = 58;
-      if (cabe(cellH * 2 + GAP + 4)) {
-        FAUNA_CATALOGO.forEach((f, i) => {
-          const col  = i % cols;
-          const row  = Math.floor(i / cols);
-          const fx   = PX + PAD + col * (cellW + GAP);
-          const fy   = y + row * (cellH + GAP);
-          const des  = estadoJogo.fauna.includes(f.id);
-
-          const cellBg = push(this.add.graphics().setDepth(DEPTH + 1));
-          cellBg.fillStyle(des ? 0x1b4332 : 0x0d1f0d, 1);
-          cellBg.fillRoundedRect(fx, fy, cellW, cellH, 4);
-          if (des) { cellBg.lineStyle(1, 0x2d6a4f, 1); cellBg.strokeRoundedRect(fx, fy, cellW, cellH, 4); }
-
-          push(this.add.text(fx + cellW / 2, fy + 22, des ? f.emoji : '?', {
-            fontSize: des ? '18px' : '14px', fontFamily: 'sans-serif',
-            color: des ? '#ffffff' : '#2d6a4f',
-          }).setOrigin(0.5).setAlpha(des ? 1 : 0.5).setDepth(DEPTH + 2));
-
-          push(this.add.text(fx + cellW / 2, fy + 44, des ? f.nome.split(' ')[0] : '???', {
-            fontSize: '8px', color: des ? '#74c69d' : '#2d6a4f',
-            fontFamily: 'Inter, sans-serif',
-          }).setOrigin(0.5).setAlpha(des ? 1 : 0.3).setDepth(DEPTH + 2));
-
-          if (des) {
-            const z = push(this.add.zone(fx + cellW / 2, fy + cellH / 2, cellW, cellH)
-              .setInteractive({ useHandCursor: true }).setDepth(DEPTH + 3));
-            z.on('pointerdown', () => {
-              if (this.cardObjs.length > 0) return;
-              this._cardFaunaInfo(f.id);
-            });
-          }
-        });
-        y += 2 * (cellH + GAP) + 4;
-      }
-    }
-
-    // =====================================================================
-    // Seção 5 — Equipe
-    // =====================================================================
-    if (!secHeader(4, '👥', 'Equipe')) return;
-    if (this._secoesAbertas[4]) {
-      const eq = estadoJogo.equipe;
-
-      // ── Equipe ativa ────────────────────────────────────────────────────
-      const subHeader = (label) => {
-        if (!cabe(16)) return;
-        const subG = push(this.add.graphics().setDepth(DEPTH));
-        subG.lineStyle(1, 0x1e4030, 0.6);
-        subG.lineBetween(PX + PAD, y + 7, PX + PANEL_W - PAD, y + 7);
-        push(this.add.text(PX + PAD + 4, y, label, {
-          fontSize: '9px', color: '#52b788', fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-          backgroundColor: '#0d2818', padding: { x: 4 },
-        }).setDepth(DEPTH + 1));
-        y += 18;
-      };
-
-      subHeader('EQUIPE ATIVA');
-      if (eq.length === 0) {
-        txtLine('Nenhum membro contratado.', '#74c69d', '10px');
-        y += 4;
-      } else {
-        // Scroll virtual — máx 6 linhas (192px) para não empurrar seções abaixo
-        const MAX_VIS = 6, ITEM_H = 32;
-        const offset = Math.min(this._equipeScrollOffset, Math.max(0, eq.length - MAX_VIS));
-        this._equipeScrollOffset = offset;
-        const visivel = eq.slice(offset, offset + MAX_VIS);
-
-        visivel.forEach(m => {
-          if (!cabe(ITEM_H)) return;
-          const rowY = y;
-          push(this.add.text(PX + PAD, rowY, `${m.emoji} ${m.nome}`, {
-            fontSize: '10px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-          }).setDepth(DEPTH + 1));
-          push(this.add.text(PX + PAD, rowY + 13, `R$ ${m.custo.toLocaleString('pt-BR')}/ciclo`, {
-            fontSize: '9px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
-          }).setDepth(DEPTH + 1));
-          // Botão Demitir
-          const BW = 52, BH = 18, BY = rowY + 4;
-          const demX = PX + PANEL_W - PAD - BW;
-          const demG = push(this.add.graphics().setDepth(DEPTH + 1));
-          const drawDem = (ov) => { demG.clear(); demG.fillStyle(ov ? 0x6b1a1a : 0x3d0f0f, 1); demG.fillRoundedRect(demX, BY, BW, BH, 3); };
-          drawDem(false);
-          push(this.add.text(demX + BW / 2, BY + BH / 2, 'Demitir', {
-            fontSize: '9px', color: '#e76f51', fontFamily: 'Inter, sans-serif',
-          }).setOrigin(0.5).setDepth(DEPTH + 2));
-          const zDem = push(this.add.zone(demX + BW / 2, BY + BH / 2, BW, BH)
-            .setInteractive({ useHandCursor: true }).setDepth(DEPTH + 3));
-          zDem.on('pointerover', () => drawDem(true));
-          zDem.on('pointerout',  () => drawDem(false));
-          zDem.on('pointerdown', () => this._demitirMembro(m.id));
-          y += ITEM_H;
-        });
-
-        // Controles de scroll (só aparecem se lista excede MAX_VIS)
-        if (eq.length > MAX_VIS && cabe(20)) {
-          const SCH = 20, SCW = CW;
-          const scY = y;
-          push(this.add.graphics().setDepth(DEPTH).fillStyle(0x0d2818, 1).fillRect(PX + PAD, scY, SCW, SCH));
-
-          // Botão ▲
-          if (offset > 0) {
-            const upG = push(this.add.graphics().setDepth(DEPTH + 1));
-            const drawUp = (ov) => { upG.clear(); upG.fillStyle(ov ? 0x2d6a4f : 0x1b4332, 1); upG.fillRoundedRect(PX + PAD, scY + 2, 22, 16, 3); };
-            drawUp(false);
-            push(this.add.text(PX + PAD + 11, scY + 10, '▲', { fontSize: '9px', color: '#74c69d', fontFamily: 'Inter, sans-serif' }).setOrigin(0.5).setDepth(DEPTH + 2));
-            const zUp = push(this.add.zone(PX + PAD + 11, scY + 10, 22, 16).setInteractive({ useHandCursor: true }).setDepth(DEPTH + 3));
-            zUp.on('pointerover', () => drawUp(true));
-            zUp.on('pointerout',  () => drawUp(false));
-            zUp.on('pointerdown', () => { this._equipeScrollOffset = Math.max(0, offset - MAX_VIS); this.atualizarPainel(); });
-          }
-
-          // Contador central
-          push(this.add.text(PX + PAD + SCW / 2, scY + SCH / 2, `${offset + 1}–${Math.min(offset + MAX_VIS, eq.length)} de ${eq.length}`, {
-            fontSize: '8px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
-          }).setOrigin(0.5).setDepth(DEPTH + 2));
-
-          // Botão ▼
-          if (offset + MAX_VIS < eq.length) {
-            const dnG = push(this.add.graphics().setDepth(DEPTH + 1));
-            const drawDn = (ov) => { dnG.clear(); dnG.fillStyle(ov ? 0x2d6a4f : 0x1b4332, 1); dnG.fillRoundedRect(PX + PAD + SCW - 22, scY + 2, 22, 16, 3); };
-            drawDn(false);
-            push(this.add.text(PX + PAD + SCW - 11, scY + 10, '▼', { fontSize: '9px', color: '#74c69d', fontFamily: 'Inter, sans-serif' }).setOrigin(0.5).setDepth(DEPTH + 2));
-            const zDn = push(this.add.zone(PX + PAD + SCW - 11, scY + 10, 22, 16).setInteractive({ useHandCursor: true }).setDepth(DEPTH + 3));
-            zDn.on('pointerover', () => drawDn(true));
-            zDn.on('pointerout',  () => drawDn(false));
-            zDn.on('pointerdown', () => { this._equipeScrollOffset = Math.min(eq.length - 1, offset + MAX_VIS); this.atualizarPainel(); });
-          }
-          y += SCH;
-        }
-        y += 2;
-      }
-
-      // ── Status de bônus ──────────────────────────────────────────────────
-      {
-        const nTec  = this._contarMembros('tecnico_florestal');
-        const nBrig = estadoJogo.equipe.filter(m => m.tipo === 'brigadista' || m.tipo === 'brigadista_indigena').length;
-        let pctEco  = Math.min(0.50, nTec * 0.10);
-        if (estadoJogo.temTrator) pctEco = Math.min(0.70, pctEco + 0.20);
-        const pctFogo = Math.min(0.50, nBrig * 0.10);
-        const temNeg  = estadoJogo.equipe.some(m => m.tipo === 'tecnico_negociacao');
-
-        if (pctEco > 0 && cabe(14)) {
-          push(this.add.text(PX + PAD, y, `⚡ Restauração/preparo: ${Math.round(pctEco * 100)}% mais rápido`, {
-            fontSize: '9px', color: '#52b788', fontFamily: 'Inter, sans-serif',
-          }).setDepth(DEPTH + 1));
-          y += 14;
-        }
-        if (pctFogo > 0 && cabe(14)) {
-          push(this.add.text(PX + PAD, y, `🔥 Combate a incêndio: ${Math.round(pctFogo * 100)}% mais rápido`, {
-            fontSize: '9px', color: '#e76f51', fontFamily: 'Inter, sans-serif',
-          }).setDepth(DEPTH + 1));
-          y += 14;
-        }
-        if (!temNeg && cabe(14)) {
-          push(this.add.text(PX + PAD, y, '⚠️ Negociação bloqueada — contrate um técnico', {
-            fontSize: '9px', color: '#C8A951', fontFamily: 'Inter, sans-serif',
-            wordWrap: { width: CW },
-          }).setDepth(DEPTH + 1));
-          y += 18;
-        }
-      }
-      y += 4;
-
-      // ── Contratar ────────────────────────────────────────────────────────
-      subHeader('CONTRATAR');
-      CATALOGO_EQUIPE.forEach(cat => {
-        if (!cabe(28)) return;
-        const podeContratar = estadoJogo.dinheiro >= cat.custo;
-        const BTN_H = 26, BTN_W = CW;
-        const btnG = push(this.add.graphics().setDepth(DEPTH + 1));
-        const drawBtn = (ov) => {
-          btnG.clear();
-          btnG.fillStyle(podeContratar ? (ov ? 0x2d6a4f : 0x1b4332) : 0x122212, 1);
-          btnG.fillRoundedRect(PX + PAD, y, BTN_W, BTN_H, 4);
-          if (podeContratar) { btnG.lineStyle(1, 0x52b788, 0.4); btnG.strokeRoundedRect(PX + PAD, y, BTN_W, BTN_H, 4); }
-        };
-        drawBtn(false);
-        push(this.add.text(PX + PAD + 6, y + BTN_H / 2, `${cat.emoji} ${cat.nome}`, {
-          fontSize: '10px', color: podeContratar ? '#d8f3dc' : '#3a5a3a',
-          fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-        }).setOrigin(0, 0.5).setDepth(DEPTH + 2));
-        push(this.add.text(PX + PANEL_W - PAD - 4, y + BTN_H / 2, `R$${(cat.custo / 1000).toFixed(0)}k`, {
-          fontSize: '9px', color: podeContratar ? '#74c69d' : '#3a5a3a',
-          fontFamily: 'Inter, sans-serif',
-        }).setOrigin(1, 0.5).setDepth(DEPTH + 2));
-        if (podeContratar) {
-          const zBtn = push(this.add.zone(PX + PAD + BTN_W / 2, y + BTN_H / 2, BTN_W, BTN_H)
-            .setInteractive({ useHandCursor: true }).setDepth(DEPTH + 3));
-          zBtn.on('pointerover', () => drawBtn(true));
-          zBtn.on('pointerout',  () => drawBtn(false));
-          zBtn.on('pointerdown', () => this._contratarMembro(cat.tipo));
-        }
-        y += BTN_H + 3;
-      });
-      y += 4;
-
-      // ── Maquinário ────────────────────────────────────────────────────────
-      subHeader('MAQUINÁRIO');
-      if (estadoJogo.temTrator) {
-        // Trator ativo — mostrar manutenção + botão vender
-        if (cabe(14)) {
-          push(this.add.text(PX + PAD, y, '🚜 Trator — ativo', {
-            fontSize: '10px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-          }).setDepth(DEPTH + 1));
-          y += 13;
-        }
-        if (cabe(12)) {
-          push(this.add.text(PX + PAD, y, 'Manutenção: R$ 2.000/ciclo', {
-            fontSize: '9px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
-          }).setDepth(DEPTH + 1));
-          y += 16;
-        }
-        if (cabe(26)) {
-          const BTN_H = 24, BTN_W = CW;
-          const vndG = push(this.add.graphics().setDepth(DEPTH + 1));
-          const drawVnd = (ov) => {
-            vndG.clear();
-            vndG.fillStyle(ov ? 0x4a3010 : 0x2d1e08, 1);
-            vndG.fillRoundedRect(PX + PAD, y, BTN_W, BTN_H, 4);
-            vndG.lineStyle(1, 0xC8A951, 0.5);
-            vndG.strokeRoundedRect(PX + PAD, y, BTN_W, BTN_H, 4);
-          };
-          drawVnd(false);
-          push(this.add.text(PX + PAD + BTN_W / 2, y + BTN_H / 2, '🔄 Vender Trator — R$ 56.000', {
-            fontSize: '10px', color: '#C8A951', fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-          }).setOrigin(0.5).setDepth(DEPTH + 2));
-          const zVnd = push(this.add.zone(PX + PAD + BTN_W / 2, y + BTN_H / 2, BTN_W, BTN_H)
-            .setInteractive({ useHandCursor: true }).setDepth(DEPTH + 3));
-          zVnd.on('pointerover', () => drawVnd(true));
-          zVnd.on('pointerout',  () => drawVnd(false));
-          zVnd.on('pointerdown', () => this._venderTrator());
-          y += BTN_H + 3;
-        }
-      } else {
-        // Sem trator — botão comprar
-        const podComprar = estadoJogo.dinheiro >= 80000;
-        if (cabe(38)) {
-          const BTN_H = 36, BTN_W = CW;
-          const cmpG = push(this.add.graphics().setDepth(DEPTH + 1));
-          const drawCmp = (ov) => {
-            cmpG.clear();
-            cmpG.fillStyle(podComprar ? (ov ? 0x4a3a0d : 0x2d2507) : 0x161407, 1);
-            cmpG.fillRoundedRect(PX + PAD, y, BTN_W, BTN_H, 4);
-            if (podComprar) { cmpG.lineStyle(1, 0xC8A951, 0.5); cmpG.strokeRoundedRect(PX + PAD, y, BTN_W, BTN_H, 4); }
-          };
-          drawCmp(false);
-          push(this.add.text(PX + PAD + BTN_W / 2, y + 10, '🚜 Comprar Trator — R$ 80.000', {
-            fontSize: '10px', color: podComprar ? '#C8A951' : '#4a3a10',
-            fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-          }).setOrigin(0.5).setDepth(DEPTH + 2));
-          push(this.add.text(PX + PAD + BTN_W / 2, y + 24, 'Manutenção: R$ 2.000/ciclo', {
-            fontSize: '8px', color: podComprar ? '#8a7030' : '#3a2e08',
-            fontFamily: 'Inter, sans-serif',
-          }).setOrigin(0.5).setDepth(DEPTH + 2));
-          if (podComprar) {
-            const zCmp = push(this.add.zone(PX + PAD + BTN_W / 2, y + BTN_H / 2, BTN_W, BTN_H)
-              .setInteractive({ useHandCursor: true }).setDepth(DEPTH + 3));
-            zCmp.on('pointerover', () => drawCmp(true));
-            zCmp.on('pointerout',  () => drawCmp(false));
-            zCmp.on('pointerdown', () => this._comprarTrator());
-          }
-          y += BTN_H + 3;
-        }
-      }
-    }
+    this.atualizarPainelHTML();
   }
 
   // =========================================================================
@@ -5773,6 +5323,307 @@ class Jogo extends Phaser.Scene {
     const pct = Math.min(estadoJogo.climax ?? 0, 100);
     if (el('hud-climax-pct'))   el('hud-climax-pct').textContent   = Math.round(pct) + '%';
     if (el('hud-climax-barra')) el('hud-climax-barra').style.width = pct + '%';
+  }
+
+  // =========================================================================
+  // PAINEL DIREITO HTML
+  // =========================================================================
+
+  criarPainelHTML() {
+    const painel = document.getElementById('painel-direito');
+    if (!painel) return;
+
+    painel.innerHTML = `
+      <div class="pd-secao">
+        <div class="pd-header">
+          <span style="font-size:13px;">💰</span>
+          <span class="pd-label">Receitas Ativas</span>
+        </div>
+        <div id="pd-receitas" class="pd-conteudo"></div>
+      </div>
+
+      <div class="pd-secao">
+        <div class="pd-header">
+          <span style="font-size:13px;">🤝</span>
+          <span class="pd-label">Parcerias</span>
+        </div>
+        <div id="pd-parcerias" class="pd-conteudo"></div>
+      </div>
+
+      <div class="pd-secao">
+        <div class="pd-header">
+          <span style="font-size:13px;">🎯</span>
+          <span class="pd-label">Objetivos</span>
+        </div>
+        <div id="pd-objetivos" class="pd-conteudo"></div>
+      </div>
+
+      <div class="pd-secao">
+        <div class="pd-header pd-header-toggle" onclick="toggleSecao('pd-fauna-conteudo', this)">
+          <span style="font-size:13px;">🦜</span>
+          <span class="pd-label">Fauna</span>
+          <span class="pd-chevron">▼</span>
+        </div>
+        <div id="pd-fauna-conteudo" class="pd-conteudo"></div>
+      </div>
+
+      <div class="pd-secao">
+        <div class="pd-header">
+          <span style="font-size:13px;">👥</span>
+          <span class="pd-label">Equipe</span>
+        </div>
+        <div class="pd-sublabel">Equipe Ativa</div>
+        <div id="pd-equipe-ativa" class="pd-conteudo"></div>
+        <div id="pd-bonus-equipe" style="margin:8px 0;"></div>
+        <div id="pd-aviso-negociacao" style="display:none;background:#1a0f0f;border-left:3px solid #e76f51;border-radius:0 6px 6px 0;padding:8px 12px;margin-bottom:10px;">
+          <span style="font-size:12px;color:#e76f51;">⚠ Negociação bloqueada — contrate um técnico</span>
+        </div>
+        <div class="pd-sublabel" style="margin-top:12px;">Contratar</div>
+        <div id="pd-contratar" class="pd-conteudo"></div>
+        <div class="pd-sublabel" style="margin-top:12px;">Maquinário</div>
+        <div id="pd-maquinario" class="pd-conteudo"></div>
+      </div>
+    `;
+
+    // Injetar estilos uma vez
+    if (!document.getElementById('pd-estilos')) {
+      const style = document.createElement('style');
+      style.id = 'pd-estilos';
+      style.textContent = `
+        #painel-direito::-webkit-scrollbar { width: 4px; }
+        #painel-direito::-webkit-scrollbar-track { background: #0d2818; }
+        #painel-direito::-webkit-scrollbar-thumb { background: #2d6a4f; border-radius: 2px; }
+        .pd-secao { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #1e4030; }
+        .pd-secao:last-child { border-bottom: none; }
+        .pd-header { display: flex; align-items: center; gap: 6px; padding: 6px 0; }
+        .pd-header-toggle { cursor: pointer; user-select: none; }
+        .pd-header-toggle:hover .pd-label { color: #d8f3dc; }
+        .pd-label { font-family: Inter, sans-serif; font-size: 11px; font-weight: 500; color: #52b788; text-transform: uppercase; letter-spacing: 0.08em; flex: 1; }
+        .pd-chevron { font-size: 10px; color: #52b788; }
+        .pd-sublabel { font-family: Inter, sans-serif; font-size: 10px; color: #52b788; text-transform: uppercase; letter-spacing: 0.08em; margin: 6px 0 4px; }
+        .pd-conteudo { padding-left: 2px; }
+        .pd-vazio { font-family: Inter, sans-serif; font-size: 13px; color: #74c69d; font-style: italic; }
+        .pd-item { font-family: Inter, sans-serif; font-size: 13px; color: #d8f3dc; line-height: 1.7; }
+        .pd-objetivo { margin-bottom: 10px; }
+        .pd-objetivo-linha { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .pd-objetivo-nome { font-family: Inter, sans-serif; font-size: 13px; color: #d8f3dc; }
+        .pd-objetivo-count { font-family: Inter, sans-serif; font-size: 11px; color: #74c69d; }
+        .pd-barra-fundo { height: 3px; background: #1e4030; border-radius: 2px; }
+        .pd-barra-fill { height: 100%; background: #52b788; border-radius: 2px; transition: width 0.4s ease; }
+        .pd-membro { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; background: #0d2818; border: 1px solid #1e4030; border-radius: 8px; margin-bottom: 6px; }
+        .pd-membro-nome { font-family: Inter, sans-serif; font-size: 13px; font-weight: 500; color: #d8f3dc; }
+        .pd-membro-custo { font-family: Inter, sans-serif; font-size: 11px; color: #74c69d; margin-top: 2px; }
+        .pd-btn-demitir { background: #3d0f0f; border: 1px solid #7a1f1f; border-radius: 6px; padding: 4px 10px; font-family: Inter, sans-serif; font-size: 11px; color: #e76f51; cursor: pointer; flex-shrink: 0; }
+        .pd-btn-demitir:hover { background: #5a1515; border-color: #e76f51; }
+        .pd-btn-contratar { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; background: #0d2818; border: 1px solid #1e4030; border-radius: 8px; margin-bottom: 6px; cursor: pointer; width: 100%; }
+        .pd-btn-contratar:hover { border-color: #52b788; background: #1b4332; }
+        .pd-btn-contratar:disabled { opacity: 0.45; cursor: not-allowed; }
+        .pd-btn-contratar:disabled:hover { border-color: #1e4030; background: #0d2818; }
+        .pd-btn-contratar-nome { font-family: Inter, sans-serif; font-size: 13px; font-weight: 500; color: #d8f3dc; }
+        .pd-btn-contratar-custo { font-family: Inter, sans-serif; font-size: 12px; color: #74c69d; }
+        .pd-btn-trator { width: 100%; padding: 12px 14px; background: #2d1f00; border: 1px solid #8B5E00; border-radius: 8px; cursor: pointer; text-align: center; }
+        .pd-btn-trator:hover { background: #3d2a00; border-color: #f4a261; }
+        .pd-btn-trator:disabled { opacity: 0.45; cursor: not-allowed; }
+        .pd-btn-trator:disabled:hover { background: #2d1f00; border-color: #8B5E00; }
+        .pd-btn-trator-titulo { font-family: Syne, sans-serif; font-size: 13px; font-weight: 700; color: #f4a261; display: block; }
+        .pd-btn-trator-sub { font-family: Inter, sans-serif; font-size: 11px; color: #74c69d; display: block; margin-top: 3px; }
+        .pd-fauna-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+        .pd-fauna-cel { background: #0d1f0d; border-radius: 6px; padding: 8px 4px; text-align: center; }
+        .pd-fauna-cel.desbloqueada { background: #1b4332; border: 1px solid #2d6a4f; cursor: pointer; }
+        .pd-fauna-cel.desbloqueada:hover { background: #2d6a4f; }
+        .pd-fauna-emoji { font-size: 20px; display: block; margin-bottom: 4px; }
+        .pd-fauna-nome { font-family: Inter, sans-serif; font-size: 9px; color: #74c69d; }
+      `;
+      document.head.appendChild(style);
+    }
+
+    this.atualizarPainelHTML();
+  }
+
+  atualizarPainelHTML() {
+    this._pdReceitas();
+    this._pdParcerias();
+    this._pdObjetivos();
+    this._pdFauna();
+    this._pdEquipe();
+  }
+
+  _pdReceitas() {
+    const el = document.getElementById('pd-receitas');
+    if (!el) return;
+    const lista = [];
+    this.hexagonos.forEach(h => {
+      if (h.receitaSAF <= 0) return;
+      const rotulo = h.tipo === 'saf' ? 'SAF' : h.tipo === 'manejo' ? 'Manejo' : h.tipo === 'floresta_climax' ? 'Carbono' : 'Receita';
+      const ex = lista.find(r => r.nome === rotulo);
+      if (ex) { ex.valor += h.receitaSAF; ex.n++; }
+      else lista.push({ nome: rotulo, valor: h.receitaSAF, n: 1 });
+    });
+    if (estadoJogo.psaAtivo) lista.push({ nome: 'PSA', valor: 12000, n: 0 });
+    if (this._objetivosAtivados?.ecoturismo) lista.push({ nome: 'Ecoturismo', valor: 25000, n: 0 });
+    if (estadoJogo.receitaPassiva > 0) lista.push({ nome: 'Outros', valor: estadoJogo.receitaPassiva, n: 0 });
+
+    if (lista.length === 0) {
+      el.innerHTML = '<span class="pd-vazio">Nenhuma receita ativa ainda.</span>';
+      return;
+    }
+    const total = lista.reduce((s, r) => s + r.valor, 0);
+    el.innerHTML = lista.map(r => `
+      <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+        <span class="pd-item">${r.n > 1 ? r.nome + ' ×' + r.n : r.nome}</span>
+        <span style="font-family:Inter,sans-serif;font-size:12px;color:#52b788;">+R$${Math.round(r.valor / 1000)}k</span>
+      </div>
+    `).join('') + `
+      <div style="display:flex;justify-content:space-between;margin-top:5px;padding-top:5px;border-top:1px solid #1e4030;">
+        <span style="font-family:Inter,sans-serif;font-size:12px;color:#74c69d;">Total/ciclo</span>
+        <span style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:#52b788;">+R$${Math.round(total / 1000)}k</span>
+      </div>
+    `;
+  }
+
+  _pdParcerias() {
+    const el = document.getElementById('pd-parcerias');
+    if (!el) return;
+    const itens = [];
+    this.hexagonos.forEach(h => {
+      if (h.parceiriaPec && h.perfilFazendeiro) {
+        const t = { saf: 'SAF', reflorestamento: 'Reflorest.', manejo: 'Manejo', intensiva: 'Intensiva' }[h.parceiriaPec] ?? h.parceiriaPec;
+        itens.push({ txt: `🐄 ${h.perfilFazendeiro.nomePropio} — ${t}`, cor: '#C8A951' });
+      }
+    });
+    this.hexagonos.filter(h => h.tipo === 'indigena').forEach(h => {
+      const cor = h.semaforoIndigena === 'verde' ? '#52b788' : h.semaforoIndigena === 'amarelo' ? '#C8A951' : '#e76f51';
+      const st  = h.semaforoIndigena === 'verde' ? 'Aliados' : h.semaforoIndigena === 'amarelo' ? 'Em diálogo' : 'Sem contato';
+      itens.push({ txt: `🪶 Indígenas — ${st}`, cor });
+    });
+    const nN = this.hexagonos.filter(h => h.tipo === 'garimpo_neutralizado').length;
+    if (nN > 0) itens.push({ txt: `⛏️ ${nN} garimpo(s) neutralizado(s)`, cor: '#74c69d' });
+
+    if (itens.length === 0) {
+      el.innerHTML = '<span class="pd-vazio">Nenhuma parceria estabelecida.</span>';
+      return;
+    }
+    el.innerHTML = itens.map(p => `<div class="pd-item" style="color:${p.cor};margin-bottom:3px;">${p.txt}</div>`).join('');
+  }
+
+  _pdObjetivos() {
+    const el = document.getElementById('pd-objetivos');
+    if (!el) return;
+    const meta80 = Math.ceil(this.hexagonos.length * 0.8);
+    const nClimax = this.hexagonos.filter(h => h.tipo === 'floresta_climax').length;
+    const feito = (nome) => `<div class="pd-item" style="color:#52b788;margin-bottom:6px;">✅ ${nome}</div>`;
+    const barra = (nome, cur, meta) => {
+      const pct = Math.min(100, (cur / meta) * 100);
+      return `<div class="pd-objetivo">
+        <div class="pd-objetivo-linha">
+          <span class="pd-objetivo-nome">${nome}</span>
+          <span class="pd-objetivo-count">${cur}/${meta}</span>
+        </div>
+        <div class="pd-barra-fundo"><div class="pd-barra-fill" style="width:${pct}%"></div></div>
+      </div>`;
+    };
+    let html = '';
+    html += this._objetivosAtivados?.psa
+      ? feito('PSA — 3 pioneiras conectadas')
+      : barra('PSA — pioneiras', this._tamanhoMaiorGrupo('floresta_pioneira'), 3);
+    html += this._objetivosAtivados?.ecoturismo
+      ? feito('Ecoturismo — 3 secundárias')
+      : barra('Ecoturismo — secundárias', this._tamanhoMaiorGrupo('floresta_secundaria'), 3);
+    html += this._objetivosAtivados?.corredor
+      ? feito('Corredor — 3 clímax')
+      : barra('Corredor — clímax', this._tamanhoMaiorGrupo('floresta_climax'), 3);
+    html += barra('Floresta Clímax (80%)', nClimax, meta80);
+    el.innerHTML = html;
+  }
+
+  _pdFauna() {
+    const el = document.getElementById('pd-fauna-conteudo');
+    if (!el) return;
+    const desbloqueados = estadoJogo.fauna ?? [];
+    el.innerHTML = `<div class="pd-fauna-grid">` +
+      FAUNA_CATALOGO.map(f => {
+        const des = desbloqueados.includes(f.id);
+        return `<div class="pd-fauna-cel${des ? ' desbloqueada' : ''}"
+          ${des ? `onclick="window.gameScene._cardFaunaInfo('${f.id}')" title="${f.nome}"` : ''}>
+          <span class="pd-fauna-emoji" style="${des ? '' : 'opacity:0.25;filter:grayscale(1)'}">${des ? f.emoji : '?'}</span>
+          <div class="pd-fauna-nome">${des ? f.nome.split(' ')[0] : '???'}</div>
+        </div>`;
+      }).join('') +
+    `</div>`;
+  }
+
+  _pdEquipe() {
+    const elAtiva     = document.getElementById('pd-equipe-ativa');
+    const elContratar = document.getElementById('pd-contratar');
+    const elMaq       = document.getElementById('pd-maquinario');
+    const elAviso     = document.getElementById('pd-aviso-negociacao');
+    const elBonus     = document.getElementById('pd-bonus-equipe');
+    if (!elAtiva) return;
+
+    const eq = estadoJogo.equipe ?? [];
+
+    // ── Equipe ativa ─────────────────────────────────────────────────────────
+    if (eq.length === 0) {
+      elAtiva.innerHTML = '<span class="pd-vazio">Nenhum membro contratado.</span>';
+    } else {
+      elAtiva.innerHTML = eq.map(m => `
+        <div class="pd-membro">
+          <div>
+            <div class="pd-membro-nome">${m.emoji} ${m.nome}</div>
+            <div class="pd-membro-custo">R$ ${m.custo.toLocaleString('pt-BR')}/ciclo</div>
+          </div>
+          <button class="pd-btn-demitir" onclick="window.gameScene._demitirMembro('${m.id}')">Demitir</button>
+        </div>
+      `).join('');
+    }
+
+    // ── Aviso negociação ─────────────────────────────────────────────────────
+    const temNeg = eq.some(m => m.tipo === 'tecnico_negociacao');
+    if (elAviso) elAviso.style.display = temNeg ? 'none' : 'block';
+
+    // ── Bônus ────────────────────────────────────────────────────────────────
+    if (elBonus) {
+      const nTec  = eq.filter(m => m.tipo === 'tecnico_florestal').length;
+      const nBrig = eq.filter(m => m.tipo === 'brigadista' || m.tipo === 'brigadista_indigena').length;
+      const pctEco  = Math.min(70, nTec * 10 + (estadoJogo.temTrator ? 20 : 0));
+      const pctFogo = Math.min(50, nBrig * 10);
+      let html = '';
+      if (pctEco  > 0) html += `<div style="font-family:Inter,sans-serif;font-size:12px;color:#52b788;margin-bottom:3px;">⚡ Restauração: ${pctEco}% mais rápida</div>`;
+      if (pctFogo > 0) html += `<div style="font-family:Inter,sans-serif;font-size:12px;color:#e76f51;">🔥 Combate incêndio: ${pctFogo}% mais rápido</div>`;
+      elBonus.innerHTML = html;
+    }
+
+    // ── Contratar ─────────────────────────────────────────────────────────────
+    if (elContratar) {
+      elContratar.innerHTML = CATALOGO_EQUIPE.map(cat => {
+        const pode = estadoJogo.dinheiro >= cat.custo;
+        return `<button class="pd-btn-contratar" ${pode ? '' : 'disabled'} onclick="window.gameScene._contratarMembro('${cat.tipo}')">
+          <span class="pd-btn-contratar-nome">${cat.emoji} ${cat.nome}</span>
+          <span class="pd-btn-contratar-custo">R$${Math.round(cat.custo / 1000)}k/ciclo</span>
+        </button>`;
+      }).join('');
+    }
+
+    // ── Maquinário ────────────────────────────────────────────────────────────
+    if (elMaq) {
+      if (estadoJogo.temTrator) {
+        elMaq.innerHTML = `
+          <div class="pd-membro">
+            <div>
+              <div class="pd-membro-nome">🚜 Trator</div>
+              <div class="pd-membro-custo">R$ 2.000/ciclo · +20% ações ecológicas</div>
+            </div>
+            <button class="pd-btn-demitir" onclick="window.gameScene._venderTrator()">Vender</button>
+          </div>`;
+      } else {
+        const pode = estadoJogo.dinheiro >= 80000;
+        elMaq.innerHTML = `
+          <button class="pd-btn-trator" ${pode ? '' : 'disabled'} onclick="window.gameScene._comprarTrator()">
+            <span class="pd-btn-trator-titulo">🚜 Comprar Trator — R$ 80.000</span>
+            <span class="pd-btn-trator-sub">Manutenção: R$ 2.000/ciclo · +20% ações ecológicas</span>
+          </button>`;
+      }
+    }
   }
 }
 

@@ -158,8 +158,38 @@
       z-index: 150;
       pointer-events: all;
     "></div>
+
+    <!-- ── Painel direito ── -->
+    <div id="painel-direito" style="
+      position: fixed;
+      top: 64px;
+      right: 0;
+      width: 280px;
+      height: calc(100vh - 64px);
+      background: #0d2818;
+      border-left: 1px solid #1e4030;
+      overflow-y: auto;
+      padding: 12px 14px;
+      pointer-events: all;
+      z-index: 150;
+      font-family: 'Inter', sans-serif;
+    "></div>
   </div>
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
   <script src="src/main.js"></script>
+  <script>
+    function toggleSecao(id, header) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const chevron = header.querySelector('.pd-chevron');
+      if (el.style.display === 'none') {
+        el.style.display = '';
+        if (chevron) chevron.textContent = '▼';
+      } else {
+        el.style.display = 'none';
+        if (chevron) chevron.textContent = '▶';
+      }
+    }
+  </script>
 </body>
 </html>
