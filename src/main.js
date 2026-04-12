@@ -413,7 +413,11 @@ const TIPOS = {
   floresta_pioneira:    { label: 'Floresta Pioneira',     emoji: '🌿', cor: 0x74c69d, hex: '#74c69d' },
   garimpo_neutralizado: { label: 'Garimpo Neutralizado',  emoji: '🟫',   cor: 0x8B6914, hex: '#8B6914' },
   nascente_ativa:       { label: 'Nascente Ativa',        emoji: '💧✨', cor: 0x1a6b8a, hex: '#1a6b8a' },
-  saf:                  { label: 'Sistema Agroflorestal', emoji: '🌾',   cor: 0x5C7A2E, hex: '#5C7A2E' },
+  saf:                  { label: 'Sistema Agroflorestal',  emoji: '🌾',  cor: 0x5C7A2E, hex: '#5C7A2E' },
+  floresta_secundaria:  { label: 'Floresta Secundária',   emoji: '🌲',  cor: 0x2d9e6b, hex: '#2d9e6b' },
+  floresta_climax:      { label: 'Floresta Clímax',       emoji: '🌳',  cor: 0x1a6b3a, hex: '#1a6b3a' },
+  viveiro:              { label: 'Viveiro de Mudas',       emoji: '🪴',  cor: 0x2d6a4f, hex: '#2d6a4f' },
+  manejo:               { label: 'Manejo Florestal',       emoji: '🪵',  cor: 0x4a7c4e, hex: '#4a7c4e' },
 };
 
 const DISTRIBUICAO = {
@@ -456,6 +460,7 @@ const estadoJogo = {
   aliancaIndigena: false,
   psaAtivo:        false,
   receitaPassiva:  0,
+  fauna:           [],
 };
 
 // ---------------------------------------------------------------------------
@@ -483,6 +488,8 @@ const DESCRICOES = {
   garimpo_neutralizado: 'Área com extração encerrada. Requer fitorremediação.',
   nascente_ativa:       'Nascente recuperada e produtiva. Gera água por ciclo.',
   saf:                  'Sistema agroflorestal em operação. Gera renda e restaura o solo.',
+  floresta_secundaria:  'Floresta jovem em processo de maturação. Fauna em expansão.',
+  floresta_climax:      'Floresta madura plena. Gera créditos de carbono e abriga fauna rara.',
 };
 
 const PERFIS_GARIMPEIRO = [
@@ -505,6 +512,27 @@ const PERFIS_FAZENDEIRO = [
 
 const NOMES_FAZENDEIROS = ['João', 'Carlos', 'Antônio', 'Sebastião', 'Raimundo', 'Pedro'];
 
+const FAUNA_CATALOGO = [
+  { id: 'abelha', emoji: '🐝', nome: 'Abelha Jataí',   raridade: 'Comum',    corRar: '#74c69d',
+    funcao: 'Polinizadora — +20% reprodução de todas as espécies',
+    dado:   'Abelhas nativas polinizam 70% das espécies vegetais da Amazônia' },
+  { id: 'cutia',  emoji: '🐾', nome: 'Cutia',          raridade: 'Incomum',  corRar: '#52b788',
+    funcao: 'Dispersora exclusiva da castanha-do-pará. Sem ela, a castanheira não se reproduz.',
+    dado:   'Relação de 8 milhões de anos entre cutia e castanheira' },
+  { id: 'tucano', emoji: '🦜', nome: 'Tucano',         raridade: 'Raro',     corRar: '#4A90D9',
+    funcao: 'Dispersa copaíba e outras espécies. Desbloqueia crescimento passivo de climácicas.',
+    dado:   'Um tucano pode dispersar sementes a até 2km da árvore-mãe' },
+  { id: 'pacu',   emoji: '🐟', nome: 'Pacu',           raridade: 'Incomum',  corRar: '#52b788',
+    funcao: 'Superdispersor nas matas ciliares. Essencial para a bacia hidrográfica.',
+    dado:   'Pacus dispersam mais sementes nas matas ciliares do que qualquer ave' },
+  { id: 'anta',   emoji: '🦏', nome: 'Anta',           raridade: 'Raro',     corRar: '#4A90D9',
+    funcao: 'Dispersora de sementes grandes. Desbloqueia o sub-bosque.',
+    dado:   'A anta dispersa mais de 50 espécies que nenhum outro animal consegue carregar' },
+  { id: 'onca',   emoji: '🐆', nome: 'Onça-pintada',   raridade: 'Lendária', corRar: '#C8A951',
+    funcao: 'Predador de topo. Confirma ecossistema maduro.',
+    dado:   'Onde há onça, há ecossistema completo. É o indicador mais preciso de saúde florestal.' },
+];
+
 // ---------------------------------------------------------------------------
 // Jogo — mapa hexagonal + painel de recursos + interação + mecânicas
 // ---------------------------------------------------------------------------
@@ -524,6 +552,7 @@ class Jogo extends Phaser.Scene {
     estadoJogo.aliancaIndigena = false;
     estadoJogo.psaAtivo        = false;
     estadoJogo.receitaPassiva  = 0;
+    estadoJogo.fauna           = [];
 
     addFundo(this);
 
@@ -702,6 +731,8 @@ class Jogo extends Phaser.Scene {
       const receitaSAF        = 0;
       const expansaoTimer     = null;
       const clusterBonus      = false;
+      // Sucessão ecológica
+      const evolucaoTimer     = null;
 
       this.hexagonos.push({
         tipo, info, row, col, cx, cy, pts, polygon, emojiTxt,
@@ -711,17 +742,20 @@ class Jogo extends Phaser.Scene {
         parcerias, dialogoBloqueado, aliancaCompleta,
         semaforoPecuaria, perfilFazendeiro, bonusContatoPec,
         contatoBloqueado, parceiriaPec, receitaSAF, expansaoTimer, clusterBonus,
+        evolucaoTimer,
       });
     });
 
     // -----------------------------------------------------------------------
     // Estado de interação
     // -----------------------------------------------------------------------
-    this.hoveredIdx  = -1;
-    this.selectedIdx = -1;
-    this.menuObjs    = [];
-    this.menuBounds  = null;
-    this.cardObjs    = [];
+    this.hoveredIdx         = -1;
+    this.selectedIdx        = -1;
+    this.menuObjs           = [];
+    this.menuBounds         = null;
+    this.cardObjs           = [];
+    this._faunaQueue        = [];
+    this._objetivosAtivados = { psa: false, ecoturismo: false, corredor: false, carbono: false };
 
     this.input.on('pointermove', this._onMove,  this);
     this.input.on('pointerdown', this._onClick, this);
@@ -736,6 +770,7 @@ class Jogo extends Phaser.Scene {
     this._cicloParcerias();
     this._iniciarExpansoesPastos();
     this._cicloReceitaSAF();
+    this._cicloViveiro();
   }
 
   // -------------------------------------------------------------------------
@@ -782,6 +817,11 @@ class Jogo extends Phaser.Scene {
         case 'indigena':             this._menuIndigena(idx);            break;
         case 'pecuaria':             this._menuPecuaria(idx);            break;
         case 'saf':                  this._menuSAF(idx);                 break;
+        case 'viveiro':              this._menuViveiro(idx);             break;
+        case 'manejo':               this._menuManejo(idx);              break;
+        case 'floresta_pioneira':    this._menuFlorestaEstagio(idx);     break;
+        case 'floresta_secundaria':  this._menuFlorestaEstagio(idx);     break;
+        case 'floresta_climax':      this._menuFlorestaEstagio(idx);     break;
         default:                     this._abrirMenu(idx);
       }
     } else {
@@ -845,8 +885,29 @@ class Jogo extends Phaser.Scene {
     this._verificarSemaforosIndigenas();
     // Verifica cluster de SAFs
     if (novoTipo === 'saf') this._verificarClusterSAF(idx);
-    // Redesenha semáforos de pecuária (hex pode ter mudado de pecuaria para saf)
+    // Redesenha semáforos de pecuária
     this._redesenharSemaforos();
+
+    // Sucessão ecológica — inicia timer automático para florestas
+    const ESTAGIOS_FLORESTA = ['floresta_pioneira', 'floresta_secundaria'];
+    if (ESTAGIOS_FLORESTA.includes(novoTipo)) {
+      this._iniciarSucessao(idx);
+    } else {
+      // Cancela timer de sucessão se o hex mudar para outro tipo
+      if (hex.evolucaoTimer) { hex.evolucaoTimer.remove(); hex.evolucaoTimer = null; }
+    }
+
+    // Atualiza % clímax
+    const nClimax = this.hexagonos.filter(h => h.tipo === 'floresta_climax').length;
+    estadoJogo.climax = (nClimax / this.hexagonos.length) * 100;
+    this._atualizarBarra();
+
+    // Receita de clímax
+    if (novoTipo === 'floresta_climax') hex.receitaSAF = 8000;
+
+    // Verifica objetivos e fauna
+    this._verificarObjetivosEcologicos();
+    this._verificarFauna();
   }
 
   // -------------------------------------------------------------------------
@@ -962,19 +1023,62 @@ class Jogo extends Phaser.Scene {
           },
         },
         {
-          label: '🌾 Implementar Sistema Agroflorestal (SAF)', custoStr: 'R$ 80.000',
-          desabilitado: false, aviso: null,
-          onPress: () => this._mostrarToast('Em breve — funcionalidade em desenvolvimento'),
+          label:        '🌾 Implementar Sistema Agroflorestal (SAF)',
+          custoStr:     'R$ 80.000',
+          desabilitado: estadoJogo.dinheiro < 80000,
+          aviso:        estadoJogo.dinheiro < 80000 ? 'Saldo insuficiente' : null,
+          onPress: () => {
+            estadoJogo.dinheiro -= 80000;
+            this.atualizarPainel();
+            this._fecharMenu();
+            this.selectedIdx = -1;
+            this._desenharSelecao();
+            const dur = DEV_MODE ? 8 : 60;
+            this._iniciarTimer(idx, dur, () => {
+              const hex = this.hexagonos[idx];
+              hex.receitaSAF = 10000;
+              this._mudarEstadoHex(idx, 'saf');
+              this._mostrarToast('🌾 SAF implantado! Gerando R$ 10.000/ciclo.');
+            }, 0xC8A951);
+          },
         },
         {
-          label: '🪴 Criar viveiro de mudas', custoStr: 'R$ 50.000',
-          desabilitado: false, aviso: null,
-          onPress: () => this._mostrarToast('Em breve — funcionalidade em desenvolvimento'),
+          label:        '🪴 Criar viveiro de mudas',
+          custoStr:     'R$ 50.000',
+          desabilitado: estadoJogo.dinheiro < 50000,
+          aviso:        estadoJogo.dinheiro < 50000 ? 'Saldo insuficiente' : null,
+          onPress: () => {
+            estadoJogo.dinheiro -= 50000;
+            this.atualizarPainel();
+            this._fecharMenu();
+            this.selectedIdx = -1;
+            this._desenharSelecao();
+            const dur = DEV_MODE ? 10 : 90;
+            this._iniciarTimer(idx, dur, () => {
+              this._mudarEstadoHex(idx, 'viveiro');
+              this._mostrarToast('🪴 Viveiro instalado! Produzindo 1.000 mudas/ciclo.');
+            }, 0x74c69d);
+          },
         },
         {
-          label: '🪵 Área de Manejo Florestal', custoStr: 'R$ 60.000',
-          desabilitado: false, aviso: null,
-          onPress: () => this._mostrarToast('Em breve — funcionalidade em desenvolvimento'),
+          label:        '🪵 Área de Manejo Florestal',
+          custoStr:     'R$ 60.000',
+          desabilitado: estadoJogo.dinheiro < 60000,
+          aviso:        estadoJogo.dinheiro < 60000 ? 'Saldo insuficiente' : null,
+          onPress: () => {
+            estadoJogo.dinheiro -= 60000;
+            this.atualizarPainel();
+            this._fecharMenu();
+            this.selectedIdx = -1;
+            this._desenharSelecao();
+            const dur = DEV_MODE ? 10 : 75;
+            this._iniciarTimer(idx, dur, () => {
+              const hex = this.hexagonos[idx];
+              hex.receitaSAF = 8000;
+              this._mudarEstadoHex(idx, 'manejo');
+              this._mostrarToast('🪵 Área de manejo ativa! Gerando R$ 8.000/ciclo.');
+            }, 0x4a7c4e);
+          },
         },
       ],
     });
@@ -2656,10 +2760,103 @@ class Jogo extends Phaser.Scene {
       });
     }
 
+    acoes.push({
+      label:        '🗑️ Desmontar SAF',
+      custoStr:     'Sem reembolso',
+      desabilitado: false,
+      aviso:        null,
+      onPress: () => {
+        const h = this.hexagonos[idx];
+        h.receitaSAF = 0;
+        this._fecharMenu();
+        this.selectedIdx = -1;
+        this._desenharSelecao();
+        this._mudarEstadoHex(idx, 'solo');
+        this._mostrarToast('🌾 SAF desmontado. Área retornou ao solo degradado.');
+      },
+    });
+
     this._abrirMenu(idx, {
       titulo:    '🌾 Sistema Agroflorestal',
       descricao: DESCRICOES['saf'],
       acoes,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Viveiro de Mudas — menu
+  // -------------------------------------------------------------------------
+  _menuViveiro(idx) {
+    const hex       = this.hexagonos[idx];
+    const temAgua   = estadoJogo.agua !== null && estadoJogo.agua > 0;
+    const statusStr = temAgua ? 'Produção: 1.000 mudas/ciclo' : 'Inativo — sem água';
+    const avisoStr  = temAgua ? null : 'Viveiro inativo — sem água disponível. Recupere uma nascente.';
+
+    this._abrirMenu(idx, {
+      titulo:         '🪴 Viveiro de Mudas',
+      descricao:      statusStr,
+      tituloColor:    '#74c69d',
+      descricaoColor: temAgua ? '#d8f3dc' : '#e76f51',
+      acoes: [
+        {
+          label:        '📊 Status',
+          custoStr:     temAgua ? '+1.000 mudas/ciclo' : 'Inativo',
+          desabilitado: true,
+          aviso:        avisoStr,
+          onPress:      () => {},
+        },
+        {
+          label:        '🗑️ Desmontar viveiro',
+          custoStr:     'Sem reembolso',
+          desabilitado: false,
+          aviso:        null,
+          onPress: () => {
+            this._fecharMenu();
+            this.selectedIdx = -1;
+            this._desenharSelecao();
+            this._mudarEstadoHex(idx, 'solo');
+            this._mostrarToast('🪴 Viveiro desmontado. Área retornou ao solo degradado.');
+          },
+        },
+      ],
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Manejo Florestal — menu
+  // -------------------------------------------------------------------------
+  _menuManejo(idx) {
+    const hex = this.hexagonos[idx];
+    const receita = hex.receitaSAF || 8000;
+
+    this._abrirMenu(idx, {
+      titulo:         '🪵 Manejo Florestal',
+      descricao:      `Receita: R$ ${receita.toLocaleString('pt-BR')}/ciclo`,
+      tituloColor:    '#74c69d',
+      descricaoColor: '#d8f3dc',
+      acoes: [
+        {
+          label:        '📊 Produção',
+          custoStr:     `R$ ${receita.toLocaleString('pt-BR')}/ciclo`,
+          desabilitado: true,
+          aviso:        null,
+          onPress:      () => {},
+        },
+        {
+          label:        '🗑️ Desmontar manejo',
+          custoStr:     'Sem reembolso',
+          desabilitado: false,
+          aviso:        null,
+          onPress: () => {
+            hex.receitaSAF = 0;
+            this._fecharMenu();
+            this.selectedIdx = -1;
+            this._desenharSelecao();
+            this._mudarEstadoHex(idx, 'solo');
+            this._mostrarToast('🪵 Manejo desmontado. Área retornou ao solo degradado.');
+          },
+        },
+      ],
     });
   }
 
@@ -2760,7 +2957,30 @@ class Jogo extends Phaser.Scene {
         if (total > 0) {
           estadoJogo.dinheiro += total;
           this.atualizarPainel();
+          // Texto flutuante perto do HUD (canto superior esquerdo)
+          this._mostrarTextoFlutuante(160, 52,
+            `+R$ ${total.toLocaleString('pt-BR')} (receita passiva)`, '#C8A951');
         }
+      },
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Viveiro — produção de mudas por ciclo
+  // -------------------------------------------------------------------------
+  _cicloViveiro() {
+    const dur = DEV_MODE ? 15000 : 60000;
+    this.time.addEvent({
+      delay: dur, loop: true,
+      callback: () => {
+        this.hexagonos.forEach(hex => {
+          if (hex.tipo !== 'viveiro') return;
+          const temAgua = estadoJogo.agua !== null && estadoJogo.agua > 0;
+          if (!temAgua) return;
+          estadoJogo.mudas += 1000;
+          this.atualizarPainel();
+          this._mostrarTextoFlutuante(hex.cx, hex.cy - 40, '+1.000 mudas', '#74c69d');
+        });
       },
     });
   }
@@ -3091,6 +3311,424 @@ class Jogo extends Phaser.Scene {
         }
       },
     });
+  }
+
+  // =========================================================================
+  // FASE 12 — Sucessão Ecológica + Fauna
+  // =========================================================================
+
+  // -------------------------------------------------------------------------
+  // Menu informativo para hexágonos em sucessão
+  // -------------------------------------------------------------------------
+  _menuFlorestaEstagio(idx) {
+    const hex = this.hexagonos[idx];
+    const info = TIPOS[hex.tipo];
+    const emSuccessao = hex.evolucaoTimer !== null && hex.evolucaoTimer !== undefined;
+
+    const descricoes = {
+      floresta_pioneira:   'Espécies pioneiras colonizando o solo. Em sucessão automática → Floresta Secundária.',
+      floresta_secundaria: 'Floresta jovem com dossel em formação. Em sucessão → Floresta Clímax.',
+      floresta_climax:     'Ecossistema maduro. Gera R$ 8.000/ciclo e suporta fauna de topo.',
+    };
+
+    const acoes = [];
+    if (hex.tipo !== 'floresta_climax') {
+      acoes.push({
+        label: '⏩ Verificar sucessão',
+        custoStr: emSuccessao ? 'Em andamento...' : 'Inativa',
+        desabilitado: true,
+        aviso: emSuccessao ? 'A floresta está evoluindo automaticamente.' : null,
+        onPress: () => {},
+      });
+    } else {
+      const receita = hex.receitaSAF || 8000;
+      acoes.push({
+        label: '💰 Receita passiva',
+        custoStr: `R$ ${receita.toLocaleString('pt-BR')}/ciclo`,
+        desabilitado: true,
+        aviso: null,
+        onPress: () => {},
+      });
+    }
+
+    this._abrirMenu(idx, {
+      titulo:         `${info.emoji} ${info.label}`,
+      descricao:      descricoes[hex.tipo] || '',
+      tituloColor:    '#74c69d',
+      descricaoColor: '#d8f3dc',
+      acoes,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Inicia timer de sucessão automática para floresta_pioneira / secundária
+  // -------------------------------------------------------------------------
+  _iniciarSucessao(idx) {
+    const hex = this.hexagonos[idx];
+    if (hex.evolucaoTimer) { hex.evolucaoTimer.remove(); hex.evolucaoTimer = null; }
+
+    let durMs, proximoTipo, txtCrescendo, txtConcluido;
+    if (hex.tipo === 'floresta_pioneira') {
+      durMs       = DEV_MODE ? 10000 : 60000;
+      proximoTipo = 'floresta_secundaria';
+      txtCrescendo = '🌱 Crescendo...';
+      txtConcluido = '🌲 Floresta Secundária estabelecida!';
+    } else if (hex.tipo === 'floresta_secundaria') {
+      durMs       = DEV_MODE ? 12000 : 90000;
+      proximoTipo = 'floresta_climax';
+      txtCrescendo = '🌲 Maturando...';
+      txtConcluido = '🌳 Floresta Clímax!';
+    } else {
+      return;
+    }
+
+    this._mostrarTextoFlutuante(hex.cx, hex.cy - 30, txtCrescendo, '#74c69d');
+
+    hex.evolucaoTimer = this.time.delayedCall(durMs, () => {
+      hex.evolucaoTimer = null;
+      this._mudarEstadoHex(idx, proximoTipo);
+      this._mostrarTextoFlutuante(hex.cx, hex.cy - 30, txtConcluido, '#52b788');
+      if (proximoTipo === 'floresta_climax') {
+        this._mostrarTextoFlutuante(hex.cx, hex.cy - 55, '🎉 Floresta Clímax!', '#C8A951');
+      }
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // BFS — verifica se há N hexágonos do tipo conectados entre si
+  // -------------------------------------------------------------------------
+  _temGrupoConectado(tipo, minTamanho) {
+    const visited = new Set();
+    for (let i = 0; i < this.hexagonos.length; i++) {
+      if (this.hexagonos[i].tipo !== tipo) continue;
+      if (visited.has(i)) continue;
+      // BFS deste cluster
+      const queue = [i], cluster = new Set([i]);
+      while (queue.length) {
+        const cur = queue.shift();
+        for (const nb of this._vizinhosHex(cur)) {
+          if (!cluster.has(nb) && this.hexagonos[nb].tipo === tipo) {
+            cluster.add(nb);
+            queue.push(nb);
+          }
+        }
+      }
+      cluster.forEach(n => visited.add(n));
+      if (cluster.size >= minTamanho) return true;
+    }
+    return false;
+  }
+
+  // -------------------------------------------------------------------------
+  // Verifica objetivos ecológicos (PSA, Ecoturismo, Corredor, Carbono)
+  // -------------------------------------------------------------------------
+  _verificarObjetivosEcologicos() {
+    const obj = this._objetivosAtivados;
+
+    // PSA — Pagamento por Serviços Ambientais: 3 floresta_pioneira conectadas
+    if (!obj.psa && this._temGrupoConectado('floresta_pioneira', 3)) {
+      obj.psa = true;
+      estadoJogo.psaAtivo = true;
+      estadoJogo.receitaPassiva += 10000;
+      this._mostrarToast('🌿 PSA ativado! +R$ 10.000/ciclo de receita passiva');
+    }
+
+    // Ecoturismo — 3 floresta_secundaria conectadas
+    if (!obj.ecoturismo && this._temGrupoConectado('floresta_secundaria', 3)) {
+      obj.ecoturismo = true;
+      estadoJogo.receitaPassiva += 20000;
+      this._mostrarToast('🏕️ Ecoturismo desbloqueado! +R$ 20.000/ciclo');
+    }
+
+    // Corredor Ecológico — 3 floresta_climax conectadas
+    if (!obj.corredor && this._temGrupoConectado('floresta_climax', 3)) {
+      obj.corredor = true;
+      estadoJogo.receitaPassiva += 30000;
+      this._mostrarToast('🌳 Corredor Ecológico formado! +R$ 30.000/ciclo');
+    }
+
+    // Crédito de Carbono — primeiro hex de clímax
+    if (!obj.carbono && this.hexagonos.some(h => h.tipo === 'floresta_climax')) {
+      obj.carbono = true;
+      this._cardCreditoCarbono();
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Card educativo — Crédito de Carbono
+  // -------------------------------------------------------------------------
+  _cardCreditoCarbono() {
+    this._fecharCard();
+    const { width, height } = this.scale;
+    const CARD_W = 440, CARD_H = 260;
+    const cx = width / 2 - CARD_W / 2, cy = height / 2 - CARD_H / 2;
+    const DEPTH = 20, objs = [];
+
+    const overlay = this.add.graphics().setDepth(DEPTH - 1);
+    overlay.fillStyle(0x000000, 0.6);
+    overlay.fillRect(0, 0, width, height);
+    objs.push(overlay);
+
+    const bgG = this.add.graphics().setDepth(DEPTH);
+    bgG.fillStyle(0x0d2818, 1);
+    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 12);
+    bgG.lineStyle(2, 0xC8A951, 1);
+    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 12);
+    objs.push(bgG);
+
+    objs.push(this.add.text(cx + CARD_W / 2, cy + 28, '🌍 Crédito de Carbono', {
+      fontSize: '18px', color: '#C8A951',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 24, cy + 68,
+      'Parabéns! Sua floresta clímax já captura carbono de forma mensurável.\n\n' +
+      'Cada hectare de floresta clímax sequestra ~10 t CO₂/ano. Com certificação, isso pode ser vendido em mercados voluntários de carbono por R$ 50–300 por tonelada.\n\n' +
+      'O Brasil tem potencial de ser o maior exportador de créditos de carbono do mundo.',
+      { fontSize: '13px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
+        wordWrap: { width: CARD_W - 48 }, lineSpacing: 5 }
+    ).setDepth(DEPTH));
+
+    const btnY = cy + CARD_H - 52, BTN_W = 200, BTN_H = 36;
+    const btnG = this.add.graphics().setDepth(DEPTH);
+    const desBt = h => {
+      btnG.clear();
+      btnG.fillStyle(h ? 0x9a7d2a : 0x6b551a, 1);
+      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6);
+    };
+    desBt(false); objs.push(btnG);
+
+    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2, 'Incrível! Continuar', {
+      fontSize: '13px', color: '#ffffff',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    const z = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
+      .setDepth(DEPTH + 1).setInteractive({ useHandCursor: true });
+    z.on('pointerover', () => desBt(true));
+    z.on('pointerout',  () => desBt(false));
+    z.on('pointerdown', () => this._fecharCard());
+    objs.push(z);
+    this.cardObjs = objs;
+  }
+
+  // -------------------------------------------------------------------------
+  // Verifica condições de desbloqueio de fauna
+  // -------------------------------------------------------------------------
+  _verificarFauna() {
+    const f = estadoJogo.fauna;
+    const hexos = this.hexagonos;
+    const nClimax    = hexos.filter(h => h.tipo === 'floresta_climax').length;
+    const nSecund    = hexos.filter(h => h.tipo === 'floresta_secundaria').length;
+    const nPioneira  = hexos.filter(h => h.tipo === 'floresta_pioneira').length;
+    const nNascente  = hexos.filter(h => h.tipo === 'nascente_ativa').length;
+    const nTotalFlor = nClimax + nSecund + nPioneira +
+                       hexos.filter(h => h.tipo === 'floresta').length;
+
+    // Abelha Jataí — 2+ hexágonos de qualquer floresta
+    if (!f.includes('abelha') && nTotalFlor >= 2) this._desbloquearFauna('abelha');
+
+    // Cutia — 1 floresta_secundaria ou clímax
+    if (!f.includes('cutia') && (nSecund + nClimax) >= 1) this._desbloquearFauna('cutia');
+
+    // Pacu — 1 nascente_ativa ao lado de floresta (qualquer)
+    if (!f.includes('pacu') && nNascente >= 1) {
+      const temVizinhanca = hexos.some((h, idx) => {
+        if (h.tipo !== 'nascente_ativa') return false;
+        return this._vizinhosHex(idx).some(nb => {
+          const t = hexos[nb].tipo;
+          return t === 'floresta_pioneira' || t === 'floresta_secundaria' ||
+                 t === 'floresta_climax'   || t === 'floresta';
+        });
+      });
+      if (temVizinhanca) this._desbloquearFauna('pacu');
+    }
+
+    // Tucano — 2+ floresta_secundaria ou clímax
+    if (!f.includes('tucano') && (nSecund + nClimax) >= 2) this._desbloquearFauna('tucano');
+
+    // Anta — 1 floresta_climax
+    if (!f.includes('anta') && nClimax >= 1) this._desbloquearFauna('anta');
+
+    // Onça-pintada — corredor ecológico ativo (3 clímax conectados)
+    if (!f.includes('onca') && this._objetivosAtivados.corredor) this._desbloquearFauna('onca');
+  }
+
+  // -------------------------------------------------------------------------
+  // Desbloqueia uma espécie e enfileira o card
+  // -------------------------------------------------------------------------
+  _desbloquearFauna(id) {
+    if (estadoJogo.fauna.includes(id)) return;
+    estadoJogo.fauna.push(id);
+    this._faunaQueue.push(id);
+    if (this._faunaQueue.length === 1) {
+      this.time.delayedCall(400, () => this._mostrarProximaFauna());
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Mostra o próximo card da fila de fauna
+  // -------------------------------------------------------------------------
+  _mostrarProximaFauna() {
+    if (!this._faunaQueue.length) return;
+    const id = this._faunaQueue[0];
+    this._cardFauna(id);
+  }
+
+  // -------------------------------------------------------------------------
+  // Card colecionável de fauna
+  // -------------------------------------------------------------------------
+  _cardFauna(id) {
+    this._fecharCard();
+    const animal = FAUNA_CATALOGO.find(a => a.id === id);
+    if (!animal) return;
+
+    const { width, height } = this.scale;
+    const CARD_W = 380, CARD_H = 320;
+    const cx = width / 2 - CARD_W / 2, cy = height / 2 - CARD_H / 2;
+    const DEPTH = 25, objs = [];
+
+    const overlay = this.add.graphics().setDepth(DEPTH - 1);
+    overlay.fillStyle(0x000000, 0.65);
+    overlay.fillRect(0, 0, width, height);
+    objs.push(overlay);
+
+    const bgG = this.add.graphics().setDepth(DEPTH);
+    bgG.fillStyle(0x071a0e, 1);
+    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 14);
+    bgG.lineStyle(3, 0xC8A951, 1);
+    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 14);
+    objs.push(bgG);
+
+    // Cabeçalho "Nova espécie desbloqueada!"
+    objs.push(this.add.text(cx + CARD_W / 2, cy + 20, '✨ Nova espécie desbloqueada!', {
+      fontSize: '13px', color: '#C8A951',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    // Emoji grande
+    objs.push(this.add.text(cx + CARD_W / 2, cy + 80, animal.emoji, {
+      fontSize: '72px',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    // Nome
+    objs.push(this.add.text(cx + CARD_W / 2, cy + 140, animal.nome, {
+      fontSize: '18px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    // Raridade
+    objs.push(this.add.text(cx + CARD_W / 2, cy + 163, animal.raridade, {
+      fontSize: '12px', color: animal.corRar,
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    // Função ecológica
+    objs.push(this.add.text(cx + 24, cy + 190, animal.funcao, {
+      fontSize: '12px', color: '#74c69d',
+      fontFamily: 'Inter, sans-serif',
+      wordWrap: { width: CARD_W - 48 }, lineSpacing: 3,
+    }).setDepth(DEPTH));
+
+    // Dado científico
+    objs.push(this.add.text(cx + 24, cy + 238, `"${animal.dado}"`, {
+      fontSize: '11px', color: '#a8c5b0', fontStyle: 'italic',
+      fontFamily: 'Inter, sans-serif',
+      wordWrap: { width: CARD_W - 48 }, lineSpacing: 3,
+    }).setDepth(DEPTH));
+
+    const btnY = cy + CARD_H - 50, BTN_W = 200, BTN_H = 34;
+    const btnG = this.add.graphics().setDepth(DEPTH);
+    const desBt = h => {
+      btnG.clear();
+      btnG.fillStyle(h ? 0x2d6a4f : 0x1b4332, 1);
+      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6);
+    };
+    desBt(false); objs.push(btnG);
+
+    const totalAnimais = estadoJogo.fauna.length;
+    const btnLabel = `Incrível! (${totalAnimais}/${FAUNA_CATALOGO.length})`;
+    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2, btnLabel, {
+      fontSize: '13px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    const z = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
+      .setDepth(DEPTH + 1).setInteractive({ useHandCursor: true });
+    z.on('pointerover', () => desBt(true));
+    z.on('pointerout',  () => desBt(false));
+    z.on('pointerdown', () => {
+      this._fecharCard();
+      this._faunaQueue.shift();
+      if (this._faunaQueue.length > 0) {
+        this.time.delayedCall(300, () => this._mostrarProximaFauna());
+      }
+    });
+    objs.push(z);
+    this.cardObjs = objs;
+  }
+
+  // -------------------------------------------------------------------------
+  // Regredir hexágono para solo (desflorestamento, incêndio tardio, etc.)
+  // -------------------------------------------------------------------------
+  _regredirHexagono(idx, motivo) {
+    const hex = this.hexagonos[idx];
+    if (hex.evolucaoTimer) { hex.evolucaoTimer.remove(); hex.evolucaoTimer = null; }
+    if (hex.receitaSAF)    hex.receitaSAF = 0;
+
+    this._mudarEstadoHex(idx, 'solo');
+
+    // Card de perda
+    this._fecharCard();
+    const { width, height } = this.scale;
+    const CARD_W = 420, CARD_H = 200;
+    const cx = width / 2 - CARD_W / 2, cy = height / 2 - CARD_H / 2;
+    const DEPTH = 20, objs = [];
+
+    const overlay = this.add.graphics().setDepth(DEPTH - 1);
+    overlay.fillStyle(0x000000, 0.55);
+    overlay.fillRect(0, 0, width, height);
+    objs.push(overlay);
+
+    const bgG = this.add.graphics().setDepth(DEPTH);
+    bgG.fillStyle(0x1a0505, 1);
+    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    bgG.lineStyle(1.5, 0xC1440E, 1);
+    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    objs.push(bgG);
+
+    objs.push(this.add.text(cx + 20, cy + 20, '💔 Área perdida!', {
+      fontSize: '16px', color: '#e76f51',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 20, cy + 55,
+      motivo || 'A área foi degradada e retornou ao estado inicial. Todo o progresso de sucessão foi perdido.',
+      { fontSize: '13px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
+        wordWrap: { width: CARD_W - 40 }, lineSpacing: 4 }
+    ).setDepth(DEPTH));
+
+    const btnY = cy + CARD_H - 48, BTN_W = 180, BTN_H = 34;
+    const btnG = this.add.graphics().setDepth(DEPTH);
+    const desBt = h => {
+      btnG.clear();
+      btnG.fillStyle(h ? 0x6b2424 : 0x3d1515, 1);
+      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6);
+    };
+    desBt(false); objs.push(btnG);
+
+    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2, 'Entendido', {
+      fontSize: '13px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    const z = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
+      .setDepth(DEPTH + 1).setInteractive({ useHandCursor: true });
+    z.on('pointerover', () => desBt(true));
+    z.on('pointerout',  () => desBt(false));
+    z.on('pointerdown', () => this._fecharCard());
+    objs.push(z);
+    this.cardObjs = objs;
   }
 
   // -------------------------------------------------------------------------
