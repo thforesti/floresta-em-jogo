@@ -461,8 +461,54 @@ const estadoJogo = {
   psa:             false,
   psaAtivo:        false,
   receitaPassiva:  0,
-  fauna:           [],
+  fauna:                    [],
+  temCisterna:              false,
+  cardsVistos:              [],
+  negociacoesBemSucedidas:  0,
+  eventosSobrevividos:      0,
+  tempoInicio:              0,
 };
+
+// ---------------------------------------------------------------------------
+// Catálogo de membros da equipe
+// ---------------------------------------------------------------------------
+const CATALOGO_EQUIPE = [
+  {
+    tipo:   'tecnico',
+    emoji:  '🔬',
+    nome:   'Técnico Ambiental',
+    custo:  8000,
+    funcao: 'Aumenta chance de negociação em +15% no hex designado.',
+  },
+  {
+    tipo:   'brigadista',
+    emoji:  '🚒',
+    nome:   'Brigadista Florestal',
+    custo:  6000,
+    funcao: 'Reduz tempo de combate a incêndios em 30% no hex designado.',
+  },
+  {
+    tipo:   'agronomo',
+    emoji:  '🌾',
+    nome:   'Engenheiro Agrônomo',
+    custo:  9000,
+    funcao: 'Reduz tempo de implantação de SAF/Viveiro/Manejo em 25%.',
+  },
+  {
+    tipo:   'hidrologista',
+    emoji:  '💧',
+    nome:   'Hidrologista',
+    custo:  7000,
+    funcao: 'Reduz tempo de recuperação de nascentes em 30%.',
+  },
+  {
+    tipo:   'ecologista',
+    emoji:  '🌳',
+    nome:   'Ecologista',
+    custo:  10000,
+    funcao: 'Acelera a sucessão florestal em 20% no hex designado.',
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Ações e descrições por tipo de terreno
@@ -656,6 +702,8 @@ class Jogo extends Phaser.Scene {
     const gridH = Math.max(...ys) - Math.min(...ys) + R * 2;
     const offX  = (width  - gridW) / 2 + halfW - Math.min(...xs);
     const offY  = HUD_H + (height - HUD_H - gridH) / 2 + R - Math.min(...ys);
+    this._offX = offX;
+    this._offY = offY;
 
     // Camadas de desenho (profundidade crescente)
     const fillG        = this.add.graphics().setDepth(0);   // fills iniciais (estático)
@@ -736,6 +784,13 @@ class Jogo extends Phaser.Scene {
       const clusterBonus      = false;
       // Sucessão ecológica
       const evolucaoTimer     = null;
+      const evolucaoTimestamp = 0;
+      // Eventos por consequência
+      const garimpoExpansaoTimer = null;
+      const queimadaCrimTimer    = null;
+      const fumaçaTimer          = null;
+      const fumaçaObj            = null;
+      const invasaoTimer         = null;
 
       this.hexagonos.push({
         tipo, info, row, col, cx, cy, pts, polygon, emojiTxt,
@@ -745,7 +800,9 @@ class Jogo extends Phaser.Scene {
         parcerias, dialogoBloqueado, aliancaCompleta,
         semaforoPecuaria, perfilFazendeiro, bonusContatoPec,
         contatoBloqueado, parceiriaPec, receitaSAF, expansaoTimer, clusterBonus,
-        evolucaoTimer,
+        evolucaoTimer, evolucaoTimestamp,
+        garimpoExpansaoTimer, queimadaCrimTimer, fumaçaTimer, fumaçaObj, invasaoTimer,
+        _fumacaAtiva: false,
       });
     });
 
@@ -759,6 +816,21 @@ class Jogo extends Phaser.Scene {
     this.cardObjs           = [];
     this._faunaQueue        = [];
     this._objetivosAtivados = { psa: false, ecoturismo: false, corredor: false, carbono: false };
+    this._alertasObjs       = [];
+    this._secaAtiva         = false;
+    this._gameOverAtivado   = false;
+    this._vitoriaAtivada    = false;
+    estadoJogo.cardsVistos              = [];
+    estadoJogo.negociacoesBemSucedidas  = 0;
+    estadoJogo.eventosSobrevividos      = 0;
+    estadoJogo.tempoInicio              = Date.now();
+
+    // -----------------------------------------------------------------------
+    // Equipe — mapa de sprites (id → Phaser.GameObjects.Text)
+    // -----------------------------------------------------------------------
+    this._membros = new Map();
+    this._criarBaseONG();
+    this._configurarDragEquipe();
 
     this.input.on('pointermove', this._onMove,  this);
     this.input.on('pointerdown', this._onClick, this);
@@ -774,6 +846,10 @@ class Jogo extends Phaser.Scene {
     this._iniciarExpansoesPastos();
     this._cicloReceitaSAF();
     this._cicloViveiro();
+    this._iniciarEventosAleatorios();
+    this._monitorarCrimeFlorestal();
+    this._verificarGameOver();
+    this._cicloSalarios();
   }
 
   // -------------------------------------------------------------------------
@@ -807,6 +883,9 @@ class Jogo extends Phaser.Scene {
 
       this.selectedIdx = idx;
       this._desenharSelecao();
+
+      // Fumaça detectada — abre menu de reação antes do menu normal
+      if (hex._fumacaAtiva) { this._menuFumaca(idx); return; }
 
       // Despacha para o builder correto por tipo
       switch (hex.tipo) {
@@ -911,6 +990,50 @@ class Jogo extends Phaser.Scene {
     // Verifica objetivos e fauna
     this._verificarObjetivosEcologicos();
     this._verificarFauna();
+    this._verificarVitoria();
+
+    // Cards educativos por tipo
+    if (novoTipo === 'saf')
+      this._mostrarCardEducativo('saf', '🌾', 'O que é SAF?',
+        'Sistemas Agroflorestais combinam árvores, cultivos e criação animal na mesma área. Produzem alimento E restauram o solo ao mesmo tempo.');
+    if (novoTipo === 'garimpo_neutralizado')
+      this._mostrarCardEducativo('garimpo_merc', '⚗️', 'Garimpo e mercúrio',
+        'O garimpo ilegal contamina rios e solos com mercúrio — um metal tóxico que entra na cadeia alimentar e afeta comunidades ribeirinhas por décadas.');
+    if (novoTipo === 'nascente_ativa')
+      this._mostrarCardEducativo('bioengenharia', '💧', 'Bioengenharia de margens',
+        'Técnica que usa plantas e estruturas naturais para estabilizar margens de rios e nascentes, prevenindo erosão e recuperando o fluxo de água.');
+
+    // Limpa fumaça se hex muda de tipo
+    if (hex._fumacaAtiva) {
+      if (hex.fumaçaTimer)  { hex.fumaçaTimer.remove(); hex.fumaçaTimer = null; }
+      if (hex.fumaçaObj && hex.fumaçaObj.active) { hex.fumaçaObj.destroy(); hex.fumaçaObj = null; }
+      hex._fumacaAtiva = false;
+    }
+
+    // Consequência — garimpo: inicia timer de expansão
+    if (novoTipo === 'garimpo') {
+      this._monitorarGarimpoExpansao(idx);
+    } else {
+      if (hex.garimpoExpansaoTimer) { hex.garimpoExpansaoTimer.remove(); hex.garimpoExpansaoTimer = null; }
+    }
+
+    // Consequência — pecuária com semáforo vermelho: inicia timer de queimada criminosa
+    if (novoTipo === 'pecuaria') {
+      this._monitorarQueimadaCriminosa(idx);
+    } else {
+      if (hex.queimadaCrimTimer) { hex.queimadaCrimTimer.remove(); hex.queimadaCrimTimer = null; }
+    }
+
+    // Rastreia timestamp de floresta_pioneira para seca
+    if (novoTipo === 'floresta_pioneira') {
+      hex.evolucaoTimestamp = this.time.now;
+    }
+
+    // Game over check
+    if (estadoJogo.dinheiro <= 0 && !this._gameOverAtivado) {
+      this._gameOverAtivado = true;
+      this.time.delayedCall(200, () => this._mostrarGameOver());
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -1036,7 +1159,7 @@ class Jogo extends Phaser.Scene {
             this._fecharMenu();
             this.selectedIdx = -1;
             this._desenharSelecao();
-            const dur = DEV_MODE ? 8 : 60;
+            const dur = this._duracaoComEquipe(idx, DEV_MODE ? 8 : 60, 'saf');
             this._iniciarTimer(idx, dur, () => {
               const hex = this.hexagonos[idx];
               hex.receitaSAF = 10000;
@@ -1056,7 +1179,7 @@ class Jogo extends Phaser.Scene {
             this._fecharMenu();
             this.selectedIdx = -1;
             this._desenharSelecao();
-            const dur = DEV_MODE ? 10 : 90;
+            const dur = this._duracaoComEquipe(idx, DEV_MODE ? 10 : 90, 'viveiro');
             this._iniciarTimer(idx, dur, () => {
               this._mudarEstadoHex(idx, 'viveiro');
               this._mostrarToast('🪴 Viveiro instalado! Produzindo 1.000 mudas/ciclo.');
@@ -1074,7 +1197,7 @@ class Jogo extends Phaser.Scene {
             this._fecharMenu();
             this.selectedIdx = -1;
             this._desenharSelecao();
-            const dur = DEV_MODE ? 10 : 75;
+            const dur = this._duracaoComEquipe(idx, DEV_MODE ? 10 : 75, 'manejo');
             this._iniciarTimer(idx, dur, () => {
               const hex = this.hexagonos[idx];
               hex.receitaSAF = 8000;
@@ -1365,7 +1488,10 @@ class Jogo extends Phaser.Scene {
 
   _calcularChance(hex) {
     const base  = 0.45;
-    const bonus = (hex.perfil?.bonus ?? 0) + hex.bonusNegociacao;
+    const hexIdx = this.hexagonos.indexOf(hex);
+    const tecnico = hexIdx >= 0 ? this._membroNoHex(hexIdx, 'tecnico') : null;
+    const bonusTecnico = tecnico ? 0.15 : 0;
+    const bonus = (hex.perfil?.bonus ?? 0) + hex.bonusNegociacao + bonusTecnico;
     return Math.min(0.90, Math.max(0.05, base + bonus));
   }
 
@@ -1379,6 +1505,7 @@ class Jogo extends Phaser.Scene {
     if (Math.random() < chance) {
       // Sucesso
       hex.bonusNegociacao = 0;
+      estadoJogo.negociacoesBemSucedidas++;
       this._mudarEstadoHex(idx, 'garimpo_neutralizado');
       this._mostrarToast('✅ Negociação bem-sucedida! Garimpeiros saíram da área.');
       this.selectedIdx = -1;
@@ -1396,6 +1523,12 @@ class Jogo extends Phaser.Scene {
     this._fecharCard();
 
     const hex = this.hexagonos[idx];
+    // Custo escala com número de garimpos ativos (+R$15k por hex adicional)
+    const nGarimpos = this.hexagonos.filter(h => h.tipo === 'garimpo').length;
+    const custoExtra = Math.max(0, nGarimpos - 1) * 15000;
+    const custoAguardar = 5000 + custoExtra;
+    const custoIbama    = 20000 + custoExtra;
+
     const { width, height } = this.scale;
     const CARD_W = 380, CARD_H = 240;
     const cx = width  / 2 - CARD_W / 2;
@@ -1420,9 +1553,12 @@ class Jogo extends Phaser.Scene {
       fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
     }).setDepth(DEPTH));
 
-    objs.push(this.add.text(cx + 20, cy + 46, 'Os garimpeiros recusaram o diálogo. O que fazer?', {
-      fontSize: '12px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
-      wordWrap: { width: CARD_W - 40 },
+    const avisoEscala = nGarimpos > 1
+      ? `⚠️ ${nGarimpos} garimpos ativos — +R$ ${custoExtra.toLocaleString('pt-BR')} nos custos`
+      : 'Os garimpeiros recusaram o diálogo. O que fazer?';
+    objs.push(this.add.text(cx + 20, cy + 46, avisoEscala, {
+      fontSize: '12px', color: nGarimpos > 1 ? '#C8A951' : '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', wordWrap: { width: CARD_W - 40 },
     }).setDepth(DEPTH));
 
     const BTN_W = CARD_W - 40, BTN_H = 48;
@@ -1443,17 +1579,18 @@ class Jogo extends Phaser.Scene {
       fontSize: '13px', color: '#d8f3dc',
       fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
     }).setDepth(DEPTH));
-    objs.push(this.add.text(cx + 30, btn1Y + 33, 'R$ 5.000 — +10% na próxima tentativa', {
+    objs.push(this.add.text(cx + 30, btn1Y + 33,
+      `R$ ${custoAguardar.toLocaleString('pt-BR')} — +10% na próxima tentativa`, {
       fontSize: '11px', color: '#52b788', fontFamily: 'Inter, sans-serif',
     }).setDepth(DEPTH));
 
-    if (estadoJogo.dinheiro >= 5000) {
+    if (estadoJogo.dinheiro >= custoAguardar) {
       const z1 = this.add.zone(cx + 20 + BTN_W / 2, btn1Y + BTN_H / 2, BTN_W, BTN_H)
         .setDepth(DEPTH).setInteractive({ useHandCursor: true });
       z1.on('pointerover', () => desBt1(true));
       z1.on('pointerout',  () => desBt1(false));
       z1.on('pointerdown', () => {
-        estadoJogo.dinheiro -= 5000;
+        estadoJogo.dinheiro -= custoAguardar;
         hex.bonusNegociacao = Math.min(0.30, hex.bonusNegociacao + 0.10);
         this.atualizarPainel();
         this._fecharCard();
@@ -1740,7 +1877,7 @@ class Jogo extends Phaser.Scene {
             this.selectedIdx = -1;
             this._desenharSelecao();
 
-            const dur = DEV_MODE ? 10 : 75;
+            const dur = this._duracaoComEquipe(idx, DEV_MODE ? 10 : 75, 'nascente');
             this._iniciarTimer(idx, dur, () => {
               this._menuNascenteEtapa2(idx);
             }, 0x4A90D9);
@@ -2392,6 +2529,7 @@ class Jogo extends Phaser.Scene {
             hex.aliancaCompleta   = true;
             hex.semaforoIndigena  = 'verde';
             estadoJogo.aliancaIndigena = true;
+            estadoJogo.negociacoesBemSucedidas++;
             this._redesenharSemaforos();
             this._cardAliancaHistorica(idx);
           }, 0x7B4FA6);
@@ -2481,6 +2619,8 @@ class Jogo extends Phaser.Scene {
   // -------------------------------------------------------------------------
   _menuPecuaria(idx) {
     const hex = this.hexagonos[idx];
+    // Cancela invasão pendente — jogador está interagindo
+    if (hex.invasaoTimer) { hex.invasaoTimer.remove(); hex.invasaoTimer = null; }
     if (hex.semaforoPecuaria === 'vermelho') this._menuPecuariaVermelho(idx);
     else                                     this._menuPecuariaPropostas(idx);
   }
@@ -2620,6 +2760,7 @@ class Jogo extends Phaser.Scene {
     const pctRef  = 65;
 
     const _proposta = (tipo, custo, dur) => {
+      estadoJogo.negociacoesBemSucedidas++;
       estadoJogo.dinheiro -= custo;
       this.atualizarPainel();
       this._fecharMenu();
@@ -2722,6 +2863,7 @@ class Jogo extends Phaser.Scene {
     const dur = DEV_MODE ? 8000 : 45000;
     this.time.delayedCall(dur, () => { hex.contatoBloqueado = false; });
     this._mostrarToast('O fazendeiro não aceitou a proposta. Tente novamente em breve.');
+    this._iniciarInvasaoPasto(idx);
   }
 
   // -------------------------------------------------------------------------
@@ -2944,6 +3086,360 @@ class Jogo extends Phaser.Scene {
     });
   }
 
+  // =========================================================================
+  // SISTEMA DE EQUIPE
+  // =========================================================================
+
+  _criarBaseONG() {
+    const { height } = this.scale;
+    const bx = 60, by = height - 85;
+
+    const g = this.add.graphics().setDepth(0.5);
+    g.fillStyle(0x1b4332, 1);
+    g.fillRoundedRect(bx - 48, by - 36, 96, 72, 8);
+    g.lineStyle(1.5, 0x52b788, 1);
+    g.strokeRoundedRect(bx - 48, by - 36, 96, 72, 8);
+
+    this.add.text(bx, by - 12, '🏠', {
+      fontSize: '22px', fontFamily: 'sans-serif',
+    }).setOrigin(0.5).setDepth(1);
+
+    this.add.text(bx, by + 18, 'Base da ONG', {
+      fontSize: '10px', color: '#74c69d',
+      fontFamily: 'Inter, sans-serif',
+    }).setOrigin(0.5).setDepth(1);
+
+    const zona = this.add.zone(bx, by, 96, 72).setInteractive({ useHandCursor: true }).setDepth(1);
+    zona.on('pointerdown', () => {
+      if (this.cardObjs.length > 0) return;
+      this._cardContratacao();
+    });
+    zona.on('pointerover',  () => { g.clear(); g.fillStyle(0x2d5a42, 1); g.fillRoundedRect(bx - 48, by - 36, 96, 72, 8); g.lineStyle(1.5, 0x74c69d, 1); g.strokeRoundedRect(bx - 48, by - 36, 96, 72, 8); });
+    zona.on('pointerout',   () => { g.clear(); g.fillStyle(0x1b4332, 1); g.fillRoundedRect(bx - 48, by - 36, 96, 72, 8); g.lineStyle(1.5, 0x52b788, 1); g.strokeRoundedRect(bx - 48, by - 36, 96, 72, 8); });
+
+    this._baseX = bx;
+    this._baseY = by;
+  }
+
+  _cardContratacao() {
+    this._fecharCard();
+    const { width, height } = this.scale;
+    const CARD_W = 460, CARD_H = 60 + CATALOGO_EQUIPE.length * 80 + 20;
+    const cx = width / 2 - CARD_W / 2;
+    const cy = height / 2 - CARD_H / 2;
+    const DEPTH = 20;
+    const objs = [];
+
+    const overlay = this.add.graphics().setDepth(DEPTH - 1);
+    overlay.fillStyle(0x000000, 0.55);
+    overlay.fillRect(0, 0, width, height);
+    objs.push(overlay);
+
+    const bgG = this.add.graphics().setDepth(DEPTH);
+    bgG.fillStyle(0x0d2818, 1);
+    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    bgG.lineStyle(1.5, 0x52b788, 1);
+    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    objs.push(bgG);
+
+    objs.push(this.add.text(cx + 20, cy + 18, '👥 Contratar Membro da Equipe', {
+      fontSize: '16px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH + 1));
+
+    CATALOGO_EQUIPE.forEach((cat, i) => {
+      const rowY = cy + 52 + i * 80;
+      const rowBg = this.add.graphics().setDepth(DEPTH);
+      rowBg.fillStyle(0x1b4332, 1);
+      rowBg.fillRoundedRect(cx + 12, rowY, CARD_W - 24, 66, 6);
+      objs.push(rowBg);
+
+      objs.push(this.add.text(cx + 28, rowY + 10, `${cat.emoji} ${cat.nome}`, {
+        fontSize: '14px', color: '#d8f3dc',
+        fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+      }).setDepth(DEPTH + 1));
+
+      objs.push(this.add.text(cx + 28, rowY + 32, cat.funcao, {
+        fontSize: '11px', color: '#74c69d',
+        fontFamily: 'Inter, sans-serif', wordWrap: { width: CARD_W - 150 },
+      }).setDepth(DEPTH + 1));
+
+      const custoStr = `R$ ${cat.custo.toLocaleString('pt-BR')}/ciclo`;
+      const semSaldo = estadoJogo.dinheiro < cat.custo;
+      const btnW = 110, btnH = 28;
+      const btnX = cx + CARD_W - btnW - 18;
+      const btnY = rowY + 19;
+
+      const btnG = this.add.graphics().setDepth(DEPTH + 1);
+      const desenhaBtn = (alpha) => {
+        btnG.clear();
+        btnG.fillStyle(semSaldo ? 0x3a3a3a : 0x52b788, alpha);
+        btnG.fillRoundedRect(btnX, btnY, btnW, btnH, 6);
+      };
+      desenhaBtn(1);
+      objs.push(btnG);
+
+      const btnTxt = this.add.text(btnX + btnW / 2, btnY + btnH / 2,
+        semSaldo ? '❌ ' + custoStr : '✅ Contratar', {
+        fontSize: '11px', color: semSaldo ? '#888' : '#0d2818',
+        fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+      }).setOrigin(0.5).setDepth(DEPTH + 2);
+      objs.push(btnTxt);
+
+      if (!semSaldo) {
+        const zona = this.add.zone(btnX + btnW / 2, btnY + btnH / 2, btnW, btnH)
+          .setInteractive({ useHandCursor: true }).setDepth(DEPTH + 3);
+        zona.on('pointerover',  () => desenhaBtn(0.78));
+        zona.on('pointerout',   () => desenhaBtn(1));
+        zona.on('pointerdown',  () => {
+          this._fecharCard();
+          this._contratarMembro(cat.tipo);
+        });
+        objs.push(zona);
+      }
+    });
+
+    // Botão fechar
+    const btnFechX = cx + CARD_W - 40, btnFechY = cy + 12;
+    const fechG = this.add.graphics().setDepth(DEPTH + 1);
+    fechG.fillStyle(0x3a3a3a, 1); fechG.fillCircle(btnFechX + 12, btnFechY + 12, 12);
+    objs.push(fechG);
+    const fechTxt = this.add.text(btnFechX + 12, btnFechY + 12, '✕', {
+      fontSize: '14px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
+    }).setOrigin(0.5).setDepth(DEPTH + 2);
+    objs.push(fechTxt);
+    const fechZona = this.add.zone(btnFechX + 12, btnFechY + 12, 28, 28)
+      .setInteractive({ useHandCursor: true }).setDepth(DEPTH + 3);
+    fechZona.on('pointerdown', () => this._fecharCard());
+    objs.push(fechZona);
+
+    this.cardObjs = objs;
+  }
+
+  _contratarMembro(tipo) {
+    const cat = CATALOGO_EQUIPE.find(c => c.tipo === tipo);
+    if (!cat || estadoJogo.dinheiro < cat.custo) return;
+
+    const id = `membro_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const membro = { id, tipo: cat.tipo, emoji: cat.emoji, nome: cat.nome, custo: cat.custo, hexIdx: null };
+    estadoJogo.equipe.push(membro);
+
+    // Cria sprite de emoji flutuando na base
+    const txt = this.add.text(this._baseX, this._baseY, cat.emoji, {
+      fontSize: '22px', fontFamily: 'sans-serif',
+    }).setOrigin(0.5).setDepth(4.3).setInteractive({ draggable: true, useHandCursor: true });
+
+    txt.setData('membroId', id);
+    this._membros.set(id, txt);
+
+    // Registra hover tooltip
+    txt.on('pointerover', () => {
+      if (!txt.getData('dragging')) {
+        txt.setAlpha(0.8);
+      }
+    });
+    txt.on('pointerout', () => txt.setAlpha(1));
+
+    // Click sem drag → mini-menu
+    txt.on('pointerdown', () => txt.setData('clickX', txt.x));
+
+    this.atualizarPainel();
+    this._mostrarTextoFlutuante(this._baseX, this._baseY - 40,
+      `+${cat.emoji} ${cat.nome} contratado!`, '#52b788');
+  }
+
+  _demitirMembro(id) {
+    const idx = estadoJogo.equipe.findIndex(m => m.id === id);
+    if (idx < 0) return;
+    const membro = estadoJogo.equipe[idx];
+    estadoJogo.equipe.splice(idx, 1);
+
+    const txt = this._membros.get(id);
+    if (txt) { txt.destroy(); this._membros.delete(id); }
+
+    this.atualizarPainel();
+    this._mostrarToast(`${membro.emoji} ${membro.nome} foi dispensado da equipe.`);
+  }
+
+  _configurarDragEquipe() {
+    this.input.on('drag', (pointer, obj, dragX, dragY) => {
+      const id = obj.getData('membroId');
+      if (!id) return;
+      obj.setData('dragging', true);
+      obj.x = dragX;
+      obj.y = dragY;
+    });
+
+    this.input.on('dragend', (pointer, obj) => {
+      const id = obj.getData('membroId');
+      if (!id) return;
+      obj.setData('dragging', false);
+
+      const membro = estadoJogo.equipe.find(m => m.id === id);
+      if (!membro) return;
+
+      // Testa se caiu em cima de um hexágono
+      const hexIdx = this.hexagonos.findIndex(h =>
+        Phaser.Geom.Polygon.Contains(h.polygon, pointer.x, pointer.y));
+
+      if (hexIdx >= 0) {
+        // Remove do hex anterior se havia
+        if (membro.hexIdx !== null && membro.hexIdx !== hexIdx) {
+          const ant = this.hexagonos[membro.hexIdx];
+          // sem nada extra a limpar, posição visual define tudo
+        }
+        membro.hexIdx = hexIdx;
+        const hex = this.hexagonos[hexIdx];
+        obj.x = hex.cx;
+        obj.y = hex.cy + 18; // levemente abaixo do centro para não sobrepor emoji principal
+        this._mostrarTextoFlutuante(hex.cx, hex.cy - 40,
+          `${membro.emoji} ${membro.nome} alocado`, '#74c69d');
+      } else {
+        // Soltou no vazio — volta para a base
+        membro.hexIdx = null;
+        obj.x = this._baseX + (Math.random() - 0.5) * 30;
+        obj.y = this._baseY + (Math.random() - 0.5) * 20;
+      }
+    });
+
+    // Click simples (sem mover) — mini-menu de ação
+    this.input.on('pointerup', (pointer) => {
+      const objs = this.input.hitTestPointer(pointer);
+      for (const o of objs) {
+        const id = o.getData && o.getData('membroId');
+        if (!id) continue;
+        if (o.getData('dragging')) break;
+        // Abrir mini-menu de demissão
+        this._miniMenuMembro(id, pointer.x, pointer.y);
+        break;
+      }
+    });
+  }
+
+  _miniMenuMembro(id, px, py) {
+    if (this.cardObjs.length > 0) return;
+    const membro = estadoJogo.equipe.find(m => m.id === id);
+    if (!membro) return;
+    this._fecharCard();
+
+    const { width, height } = this.scale;
+    const CARD_W = 240, CARD_H = 110;
+    let cx = px - CARD_W / 2;
+    let cy = py - CARD_H - 10;
+    cx = Math.max(8, Math.min(cx, width  - CARD_W - 8));
+    cy = Math.max(8, Math.min(cy, height - CARD_H - 8));
+    const DEPTH = 20;
+    const objs = [];
+
+    const bgG = this.add.graphics().setDepth(DEPTH);
+    bgG.fillStyle(0x0d2818, 1);
+    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    bgG.lineStyle(1.5, 0x52b788, 1);
+    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    objs.push(bgG);
+
+    objs.push(this.add.text(cx + 12, cy + 12, `${membro.emoji} ${membro.nome}`, {
+      fontSize: '13px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH + 1));
+
+    objs.push(this.add.text(cx + 12, cy + 34, `Custo: R$ ${membro.custo.toLocaleString('pt-BR')}/ciclo`, {
+      fontSize: '11px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+    }).setDepth(DEPTH + 1));
+
+    // Botão Demitir
+    const btnW = CARD_W - 24, btnH = 32;
+    const btnX = cx + 12, btnY = cy + CARD_H - btnH - 12;
+    const btnG = this.add.graphics().setDepth(DEPTH + 1);
+    const desenhaBtn = (alpha) => {
+      btnG.clear();
+      btnG.fillStyle(0x8B2020, alpha);
+      btnG.fillRoundedRect(btnX, btnY, btnW, btnH, 6);
+    };
+    desenhaBtn(1);
+    objs.push(btnG);
+    objs.push(this.add.text(btnX + btnW / 2, btnY + btnH / 2, '🔥 Demitir', {
+      fontSize: '13px', color: '#fff', fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH + 2));
+
+    const zona = this.add.zone(btnX + btnW / 2, btnY + btnH / 2, btnW, btnH)
+      .setInteractive({ useHandCursor: true }).setDepth(DEPTH + 3);
+    zona.on('pointerover',  () => desenhaBtn(0.78));
+    zona.on('pointerout',   () => desenhaBtn(1));
+    zona.on('pointerdown',  () => { this._fecharCard(); this._demitirMembro(id); });
+    objs.push(zona);
+
+    // Fechar ao clicar fora — overlay transparente
+    const overlay = this.add.graphics().setDepth(DEPTH - 1);
+    overlay.fillStyle(0x000000, 0.01);
+    overlay.fillRect(0, 0, width, height);
+    overlay.setInteractive();
+    overlay.on('pointerdown', () => this._fecharCard());
+    objs.push(overlay);
+
+    this.cardObjs = objs;
+  }
+
+  _cicloSalarios() {
+    const dur = DEV_MODE ? 15000 : 60000;
+    this.time.addEvent({
+      delay: dur, loop: true,
+      callback: () => {
+        const equipe = estadoJogo.equipe;
+        if (equipe.length === 0) return;
+        const totalCusto = equipe.reduce((s, m) => s + m.custo, 0);
+        if (estadoJogo.dinheiro >= totalCusto) {
+          estadoJogo.dinheiro -= totalCusto;
+          this.atualizarPainel();
+          this._mostrarTextoFlutuante(
+            this._dinheiroHudCx ?? 300, 80,
+            `-R$ ${totalCusto.toLocaleString('pt-BR')} (salários)`, '#e76f51'
+          );
+        } else {
+          // Auto-demite o mais caro
+          const maisCaroIdx = equipe.reduce((best, m, i) =>
+            m.custo > equipe[best].custo ? i : best, 0);
+          const maiscaro = equipe[maisCaroIdx];
+          this._demitirMembro(maiscaro.id);
+          this._mostrarAlerta(
+            `💸 Saldo insuficiente! ${maiscaro.emoji} ${maiscaro.nome} foi dispensado.`,
+            'critico'
+          );
+          // Paga o resto se possível
+          const restante = equipe.reduce((s, m) => s + m.custo, 0);
+          if (estadoJogo.dinheiro >= restante) {
+            estadoJogo.dinheiro -= restante;
+            this.atualizarPainel();
+          }
+        }
+      },
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Equipe — helpers de consulta por hex
+  // -------------------------------------------------------------------------
+  _membroNoHex(hexIdx, tipo) {
+    return estadoJogo.equipe.find(m => m.hexIdx === hexIdx && m.tipo === tipo) ?? null;
+  }
+
+  _duracaoComEquipe(hexIdx, durSeg, tipoAcao) {
+    let dur = durSeg;
+    if (tipoAcao === 'saf' || tipoAcao === 'viveiro' || tipoAcao === 'manejo') {
+      if (this._membroNoHex(hexIdx, 'agronomo')) dur = Math.round(dur * 0.75);
+    }
+    if (tipoAcao === 'queimada') {
+      if (this._membroNoHex(hexIdx, 'brigadista')) dur = Math.round(dur * 0.70);
+    }
+    if (tipoAcao === 'nascente') {
+      if (this._membroNoHex(hexIdx, 'hidrologista')) dur = Math.round(dur * 0.70);
+    }
+    if (tipoAcao === 'sucessao') {
+      if (this._membroNoHex(hexIdx, 'ecologista')) dur = Math.round(dur * 0.80);
+    }
+    return Math.max(1, dur);
+  }
+
   _cicloReceitaSAF() {
     const dur = DEV_MODE ? 15000 : 60000;
     this.time.addEvent({
@@ -3038,10 +3534,11 @@ class Jogo extends Phaser.Scene {
 
       if (hex.propagacaoTimer) { hex.propagacaoTimer.remove(); hex.propagacaoTimer = null; }
 
-      const niv = this._brigadistaNivel();
-      const dur = DEV_MODE
+      const niv = this._brigadistaNivel(idx);
+      const baseDur = DEV_MODE
         ? (niv === 'indigena' ? 7 : niv === 'normal' ? 10 : 15)
         : (niv === 'indigena' ? 50 : niv === 'normal' ? 80 : 120);
+      const dur = this._duracaoComEquipe(idx, baseDur, 'queimada');
 
       this._iniciarTimer(idx, dur, () => {
         this._mudarEstadoHex(idx, 'solo');
@@ -3077,10 +3574,16 @@ class Jogo extends Phaser.Scene {
     });
   }
 
-  // Retorna 'indigena', 'normal' ou 'none' conforme equipe
-  _brigadistaNivel() {
+  // Retorna 'indigena', 'normal' ou 'none' conforme equipe — prioriza membro no hex
+  _brigadistaNivel(hexIdx = null) {
     const eq = estadoJogo.equipe;
+    // Primeiro verifica se há brigadista alocado no hex específico
+    if (hexIdx !== null) {
+      if (eq.some(m => m.hexIdx === hexIdx && m.tipo === 'brigadista')) return 'normal';
+    }
+    // Fallback: brigadista indígena global (parceria indígena)
     if (eq.some(m => m.tipo === 'brigadista_indigena')) return 'indigena';
+    // Fallback: qualquer brigadista na equipe
     if (eq.some(m => m.tipo === 'brigadista'))          return 'normal';
     return 'none';
   }
@@ -3386,6 +3889,10 @@ class Jogo extends Phaser.Scene {
       return;
     }
 
+    // Ecologista no hex acelera sucessão em 20%
+    const durSeg = this._duracaoComEquipe(idx, durMs / 1000, 'sucessao');
+    durMs = durSeg * 1000;
+
     this._mostrarTextoFlutuante(hex.cx, hex.cy - 30, txtCrescendo, '#74c69d');
 
     hex.evolucaoTimer = this.time.delayedCall(durMs, () => {
@@ -3436,6 +3943,8 @@ class Jogo extends Phaser.Scene {
       estadoJogo.psaAtivo = true;
       estadoJogo.receitaPassiva += 12000;
       this._mostrarToast('🌿 PSA ativado! +R$ 12.000/ciclo. +25% chance de aceite dos fazendeiros.');
+      this._mostrarCardEducativo('psa', '🌿', 'O que é PSA?',
+        'Pagamento por Serviços Ambientais — o governo e empresas pagam proprietários para manter e restaurar florestas. Conservar também é um negócio.');
     }
 
     // Ecoturismo — 3 floresta_secundaria conectadas
@@ -3454,6 +3963,8 @@ class Jogo extends Phaser.Scene {
         }
       });
       this._mostrarToast('🌿 Corredor ecológico completo! Carbono +40% em todos os clímax.');
+      this._mostrarCardEducativo('corredor', '🦋', 'O que é corredor ecológico?',
+        'Faixas de floresta conectada que permitem que animais se movam entre áreas. Sem corredores, a fauna fica isolada e perde diversidade genética.');
     }
 
     // Crédito de Carbono — primeiro hex de clímax
@@ -3516,7 +4027,11 @@ class Jogo extends Phaser.Scene {
       .setDepth(DEPTH + 1).setInteractive({ useHandCursor: true });
     z.on('pointerover', () => desBt(true));
     z.on('pointerout',  () => desBt(false));
-    z.on('pointerdown', () => this._fecharCard());
+    z.on('pointerdown', () => {
+      this._fecharCard();
+      this._mostrarCardEducativo('carbono', '💨', 'Como funciona o crédito de carbono?',
+        'Florestas absorvem CO₂ da atmosfera. Empresas pagam para compensar suas emissões. Sua floresta vira receita.');
+    });
     objs.push(z);
     this.cardObjs = objs;
   }
@@ -3745,6 +4260,749 @@ class Jogo extends Phaser.Scene {
     this.cardObjs = objs;
   }
 
+  // =========================================================================
+  // VITÓRIA
+  // =========================================================================
+
+  _condicoesVitoria() {
+    const h = this.hexagonos;
+    const n = h.length;
+    const nClimax = h.filter(x => x.tipo === 'floresta_climax').length;
+    return (
+      nClimax / n >= 0.80 &&
+      !h.some(x => x.tipo === 'garimpo') &&
+      !h.some(x => x.tipo === 'nascente') &&
+      !h.some(x => x.tipo === 'queimada') &&
+      !h.some(x => x.tipo === 'solo')
+    );
+  }
+
+  _verificarVitoria() {
+    if (this._vitoriaAtivada || this._gameOverAtivado) return;
+    if (!this._condicoesVitoria()) return;
+    this._vitoriaAtivada = true;
+    this.time.delayedCall(600, () => this._sequenciaVitoria());
+  }
+
+  _sequenciaVitoria() {
+    this._fecharCard();
+    this._fecharMenu();
+    this.time.removeAllEvents();
+
+    // Passo 1: hexágonos piscam em verde 3×
+    const ov = this.add.graphics().setDepth(8);
+    const desenhar = () => {
+      ov.clear();
+      ov.fillStyle(0x52b788, 0.55);
+      this.hexagonos.forEach(h => {
+        ov.beginPath();
+        ov.moveTo(h.pts[0].x, h.pts[0].y);
+        for (let i = 1; i < 6; i++) ov.lineTo(h.pts[i].x, h.pts[i].y);
+        ov.closePath();
+        ov.fillPath();
+      });
+    };
+    desenhar();
+
+    this.tweens.add({
+      targets: ov, alpha: 0, duration: 350,
+      yoyo: true, repeat: 2, ease: 'Linear',
+      onComplete: () => {
+        ov.destroy();
+        // Texto central de vitória
+        const cx = this.scale.width / 2;
+        const cy = this.scale.height / 2;
+        const txt = this.add.text(cx, cy, '🌳 Território restaurado!', {
+          fontSize: '32px', color: '#d8f3dc',
+          fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+        }).setOrigin(0.5).setDepth(9).setAlpha(0);
+        this.tweens.add({ targets: txt, alpha: 1, duration: 700 });
+        // Passo 2: fauna após 3s
+        this.time.delayedCall(3000, () => {
+          if (txt.active) txt.destroy();
+          this._sequenciaFaunaVitoria();
+        });
+      },
+    });
+  }
+
+  _sequenciaFaunaVitoria() {
+    const ORDEM = { Comum: 0, Incomum: 1, Raro: 2, Lendária: 3 };
+    const coletados = estadoJogo.fauna
+      .filter(id => id !== 'onca')
+      .sort((a, b) => {
+        const ra = FAUNA_CATALOGO.find(f => f.id === a)?.raridade ?? 'Comum';
+        const rb = FAUNA_CATALOGO.find(f => f.id === b)?.raridade ?? 'Comum';
+        return ORDEM[ra] - ORDEM[rb];
+      });
+    if (estadoJogo.fauna.includes('onca')) coletados.push('onca');
+
+    if (!coletados.length) { this.scene.start('TelaVitoria'); return; }
+
+    let i = 0;
+    const mostrar = () => {
+      if (i >= coletados.length) { this.scene.start('TelaVitoria'); return; }
+      const id = coletados[i++];
+      this._cardFaunaVitoria(id, id === 'onca', () => mostrar());
+    };
+    mostrar();
+  }
+
+  _cardFaunaVitoria(id, isOnca, onNext) {
+    this._fecharCard();
+    const animal = FAUNA_CATALOGO.find(a => a.id === id);
+    if (!animal) { onNext(); return; }
+
+    const { width, height } = this.scale;
+    const CARD_W = 380, CARD_H = 320;
+    const cx = width / 2 - CARD_W / 2, cy = height / 2 - CARD_H / 2;
+    const DEPTH = 25, objs = [];
+    let autoTimer = null;
+
+    const ov = this.add.graphics().setDepth(DEPTH - 1);
+    ov.fillStyle(0x000000, 0.65); ov.fillRect(0, 0, width, height);
+    objs.push(ov);
+
+    const bgG = this.add.graphics().setDepth(DEPTH);
+    bgG.fillStyle(0x071a0e, 1);
+    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 14);
+    objs.push(bgG);
+
+    // Borda: onça = dourada pulsante, demais = padrão
+    const bordaG = this.add.graphics().setDepth(DEPTH);
+    bordaG.lineStyle(isOnca ? 3 : 2, isOnca ? 0xC8A951 : 0x52b788, 1);
+    bordaG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 14);
+    objs.push(bordaG);
+    if (isOnca) {
+      this.tweens.add({ targets: bordaG, alpha: 0.2, duration: 400, yoyo: true, repeat: -1 });
+    }
+
+    objs.push(this.add.text(cx + CARD_W / 2, cy + 20,
+      isOnca ? '🏆 Espécie lendária!' : '✨ ' + animal.raridade,
+      { fontSize: '13px', color: isOnca ? '#C8A951' : '#74c69d',
+        fontFamily: 'Inter, sans-serif', fontStyle: 'bold' }
+    ).setOrigin(0.5).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + CARD_W / 2, cy + 80, animal.emoji, { fontSize: '72px' })
+      .setOrigin(0.5).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + CARD_W / 2, cy + 140, animal.nome, {
+      fontSize: '18px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 24, cy + 175, animal.funcao, {
+      fontSize: '12px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+      wordWrap: { width: CARD_W - 48 }, lineSpacing: 3,
+    }).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 24, cy + 228, `"${animal.dado}"`, {
+      fontSize: '11px', color: '#a8c5b0', fontStyle: 'italic',
+      fontFamily: 'Inter, sans-serif', wordWrap: { width: CARD_W - 48 }, lineSpacing: 3,
+    }).setDepth(DEPTH));
+
+    const btnY = cy + CARD_H - 50, BTN_W = 200, BTN_H = 34;
+    const btnG = this.add.graphics().setDepth(DEPTH);
+    const desBt = h => { btnG.clear();
+      btnG.fillStyle(h ? 0x2d6a4f : 0x1b4332, 1);
+      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6); };
+    desBt(false); objs.push(btnG);
+
+    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2, 'Continuar →', {
+      fontSize: '13px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    const avançar = () => {
+      if (autoTimer) { autoTimer.remove(); autoTimer = null; }
+      objs.forEach(o => { if (o.active) o.destroy(); });
+      this.cardObjs = [];
+      onNext();
+    };
+
+    const z = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
+      .setDepth(DEPTH + 1).setInteractive({ useHandCursor: true });
+    z.on('pointerover', () => desBt(true));
+    z.on('pointerout',  () => desBt(false));
+    z.on('pointerdown', avançar);
+    objs.push(z);
+
+    this.cardObjs = objs;
+    autoTimer = this.time.delayedCall(2000, avançar);
+  }
+
+  // =========================================================================
+  // CARDS EDUCATIVOS
+  // =========================================================================
+
+  _mostrarCardEducativo(id, icone, titulo, texto) {
+    if (estadoJogo.cardsVistos.includes(id)) return;
+    const tentar = () => {
+      if (this.cardObjs.length > 0) { this.time.delayedCall(3500, tentar); return; }
+      estadoJogo.cardsVistos.push(id);
+      this._exibirCardEducativo(icone, titulo, texto);
+    };
+    this.time.delayedCall(900, tentar);
+  }
+
+  _exibirCardEducativo(icone, titulo, texto) {
+    this._fecharCard();
+    const { width, height } = this.scale;
+    const CARD_W = 400, CARD_H = 200;
+    const cx = width / 2 - CARD_W / 2, cy = height / 2 - CARD_H / 2;
+    const DEPTH = 22, objs = [];
+
+    const ov = this.add.graphics().setDepth(DEPTH - 1);
+    ov.fillStyle(0x000000, 0.5); ov.fillRect(0, 0, width, height);
+    objs.push(ov);
+
+    const bg = this.add.graphics().setDepth(DEPTH);
+    bg.fillStyle(0x0d1f0d, 1);
+    bg.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    bg.lineStyle(1, 0x52b788, 1);
+    bg.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    objs.push(bg);
+
+    objs.push(this.add.text(cx + CARD_W / 2, cy + 24, icone, { fontSize: '28px' })
+      .setOrigin(0.5).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + CARD_W / 2, cy + 60, titulo, {
+      fontSize: '16px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 20, cy + 90, texto, {
+      fontSize: '13px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+      wordWrap: { width: CARD_W - 40 }, lineSpacing: 4,
+    }).setDepth(DEPTH));
+
+    const btnY = cy + CARD_H - 46, BTN_W = 160, BTN_H = 32;
+    const btnG = this.add.graphics().setDepth(DEPTH);
+    const desBt = h => { btnG.clear(); btnG.fillStyle(h ? 0x2d6a4f : 0x1b4332, 1);
+      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6); };
+    desBt(false); objs.push(btnG);
+
+    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2, 'Entendido →', {
+      fontSize: '12px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    const z = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
+      .setDepth(DEPTH + 1).setInteractive({ useHandCursor: true });
+    z.on('pointerover', () => desBt(true)); z.on('pointerout', () => desBt(false));
+    z.on('pointerdown', () => this._fecharCard());
+    objs.push(z);
+    this.cardObjs = objs;
+  }
+
+  // =========================================================================
+  // SISTEMA DE EVENTOS
+  // =========================================================================
+
+  // -------------------------------------------------------------------------
+  // Alertas empilhados — canto inferior direito
+  // -------------------------------------------------------------------------
+  _mostrarAlerta(msg, corBorda = '#52b788', critico = false) {
+    if (!this._alertasObjs) this._alertasObjs = [];
+    this._alertasObjs = this._alertasObjs.filter(a => a.alive);
+    if (this._alertasObjs.length >= 3) return;
+
+    const { width, height } = this.scale;
+    const W = 310, H = 52, GAP = 8;
+    const ax = width - W - 16;
+    const slot = this._alertasObjs.length;
+    const ay = height - 16 - (slot + 1) * (H + GAP);
+    const DEPTH = 22;
+    const cor = parseInt(corBorda.replace('#', ''), 16);
+
+    const bg = this.add.graphics().setDepth(DEPTH);
+    bg.fillStyle(0x071810, 0.94);
+    bg.fillRoundedRect(ax, ay, W, H, 6);
+    bg.lineStyle(1.5, cor, 1);
+    bg.strokeRoundedRect(ax, ay, W, H, 6);
+
+    const txt = this.add.text(ax + 10, ay + H / 2, msg, {
+      fontSize: '12px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
+      wordWrap: { width: W - 20 }, lineSpacing: 2,
+    }).setOrigin(0, 0.5).setDepth(DEPTH);
+
+    const entry = { alive: true, objs: [bg, txt] };
+    this._alertasObjs.push(entry);
+
+    const destruir = () => {
+      entry.alive = false;
+      if (bg.active) bg.destroy();
+      if (txt.active) txt.destroy();
+      this._alertasObjs = this._alertasObjs.filter(a => a !== entry);
+    };
+
+    if (!critico) {
+      this.time.delayedCall(5000, destruir);
+    } else {
+      if (txt.active) txt.setText(msg + '\n[clique para fechar]');
+      const z = this.add.zone(ax + W / 2, ay + H / 2, W, H)
+        .setDepth(DEPTH + 1).setInteractive({ useHandCursor: true });
+      z.on('pointerdown', () => { destruir(); if (z.active) z.destroy(); });
+      entry.objs.push(z);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Banner piscante de aviso no topo
+  // -------------------------------------------------------------------------
+  _mostrarBannerAviso(msg) {
+    const { width } = this.scale;
+    const H = 34;
+    const bg = this.add.graphics().setDepth(30);
+    bg.fillStyle(0xC8A951, 1);
+    bg.fillRect(0, 70, width, H);
+    const txt = this.add.text(width / 2, 70 + H / 2, msg, {
+      fontSize: '13px', color: '#071810',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(31);
+    this.tweens.add({
+      targets: [bg, txt], alpha: 0.25, duration: 380,
+      yoyo: true, repeat: 7,
+      onComplete: () => { if (bg.active) bg.destroy(); if (txt.active) txt.destroy(); },
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Eventos aleatórios periódicos
+  // -------------------------------------------------------------------------
+  _iniciarEventosAleatorios() {
+    // Seca Extrema — 15% a cada 3 min (45s dev)
+    const durSeca = DEV_MODE ? 45000 : 180000;
+    this.time.addEvent({ delay: durSeca, loop: true, callback: () => {
+      if (Math.random() > 0.15) return;
+      this._mostrarBannerAviso('⚠️ SECA EXTREMA SE APROXIMANDO — Verifique suas reservas de água!');
+      this.time.delayedCall(10000, () => this._aplicarSeca());
+    }});
+
+    // Edital Aprovado — 20-35% a cada 4 min (60s dev)
+    const durEdital = DEV_MODE ? 60000 : 240000;
+    this.time.addEvent({ delay: durEdital, loop: true, callback: () => {
+      const temParcerias = this.hexagonos.some(h =>
+        h.aliancaCompleta || h.parceiriaPec != null || h.tipo === 'saf'
+      );
+      const chance = temParcerias ? 0.35 : 0.20;
+      if (Math.random() > chance) return;
+      estadoJogo.dinheiro += 200000;
+      estadoJogo.eventosSobrevividos++;
+      this.atualizarPainel();
+      this._mostrarTextoFlutuante(
+        this._dinheiroHudCx ?? 300, 88, '+R$ 200.000', '#52b788'
+      );
+      this._cardEditalAprovado();
+    }});
+  }
+
+  _aplicarSeca() {
+    this._secaAtiva = true;
+    estadoJogo.eventosSobrevividos++;
+    const temCisterna = estadoJogo.temCisterna;
+    const fator = temCisterna ? 0.80 : 0.50;
+
+    // Reduz produção das nascentes ativas
+    this.hexagonos.forEach(hex => {
+      if (hex.tipo !== 'nascente_ativa') return;
+      hex._producaoAguaOriginal = hex._producaoAguaOriginal ?? hex.producaoAgua;
+      hex.producaoAgua = Math.round(hex.producaoAgua * fator);
+    });
+
+    // Morte de mudas recentes (pioneira com menos de 30s real / 30s)
+    if (!temCisterna) {
+      const agora = this.time.now;
+      this.hexagonos.forEach((hex, i) => {
+        if (hex.tipo !== 'floresta_pioneira') return;
+        const idadeSeg = (agora - hex.evolucaoTimestamp) / 1000;
+        if (idadeSeg < 30 && Math.random() < 0.4) {
+          this._regredirHexagono(i, 'A seca extrema matou as mudas recém-plantadas antes de se estabelecerem.');
+        }
+      });
+    }
+
+    this._cardSecaExtrema(temCisterna);
+
+    // Normaliza após 2 ciclos (2 min real / 30s dev)
+    const durNorm = DEV_MODE ? 30000 : 120000;
+    this.time.delayedCall(durNorm, () => {
+      this._secaAtiva = false;
+      this.hexagonos.forEach(hex => {
+        if (hex.tipo === 'nascente_ativa' && hex._producaoAguaOriginal != null) {
+          hex.producaoAgua = hex._producaoAguaOriginal;
+          delete hex._producaoAguaOriginal;
+        }
+      });
+      this._mostrarAlerta('🌧️ A seca passou. Produção de água normalizada.', '#4A90D9');
+    });
+  }
+
+  _cardSecaExtrema(temCisterna) {
+    this._fecharCard();
+    const { width, height } = this.scale;
+    const CARD_W = 420, CARD_H = 190;
+    const cx = width / 2 - CARD_W / 2, cy = height / 2 - CARD_H / 2;
+    const DEPTH = 20, objs = [];
+
+    const ov = this.add.graphics().setDepth(DEPTH - 1);
+    ov.fillStyle(0x000000, 0.55); ov.fillRect(0, 0, width, height);
+    objs.push(ov);
+
+    const bg = this.add.graphics().setDepth(DEPTH);
+    bg.fillStyle(0x4a2800, 1);
+    bg.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    bg.lineStyle(2, 0xC8A951, 1);
+    bg.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    objs.push(bg);
+
+    objs.push(this.add.text(cx + 20, cy + 18, '☀️ Seca Extrema!', {
+      fontSize: '16px', color: '#C8A951', fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+
+    const corpo = temCisterna
+      ? 'Sua cisterna reduziu o impacto em 60%. A produção de água caiu 20% por 2 ciclos. As mudas estão protegidas.'
+      : 'A produção de água caiu 50% por 2 ciclos. Florestas jovens estão em risco — mudas recém-plantadas podem morrer.';
+    objs.push(this.add.text(cx + 20, cy + 54, corpo, {
+      fontSize: '13px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
+      wordWrap: { width: CARD_W - 40 }, lineSpacing: 4,
+    }).setDepth(DEPTH));
+
+    const btnY = cy + CARD_H - 50, BTN_W = 180, BTN_H = 34;
+    const btnG = this.add.graphics().setDepth(DEPTH);
+    const desBt = h => { btnG.clear(); btnG.fillStyle(h ? 0x7a4f10 : 0x4a2800, 1);
+      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6); };
+    desBt(false); objs.push(btnG);
+
+    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2, 'Entendido', {
+      fontSize: '13px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    const z = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
+      .setDepth(DEPTH + 1).setInteractive({ useHandCursor: true });
+    z.on('pointerover', () => desBt(true)); z.on('pointerout', () => desBt(false));
+    z.on('pointerdown', () => this._fecharCard());
+    objs.push(z);
+    this.cardObjs = objs;
+  }
+
+  _cardEditalAprovado() {
+    this._fecharCard();
+    const { width, height } = this.scale;
+    const CARD_W = 420, CARD_H = 190;
+    const cx = width / 2 - CARD_W / 2, cy = height / 2 - CARD_H / 2;
+    const DEPTH = 20, objs = [];
+
+    const ov = this.add.graphics().setDepth(DEPTH - 1);
+    ov.fillStyle(0x000000, 0.55); ov.fillRect(0, 0, width, height);
+    objs.push(ov);
+
+    const bg = this.add.graphics().setDepth(DEPTH);
+    bg.fillStyle(0x0d2818, 1);
+    bg.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    bg.lineStyle(2, 0x52b788, 1);
+    bg.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    objs.push(bg);
+
+    objs.push(this.add.text(cx + 20, cy + 18, '🎉 Edital Aprovado!', {
+      fontSize: '18px', color: '#52b788', fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 20, cy + 54,
+      'Sua ONG foi contemplada com recursos adicionais.\nO trabalho de parceria está rendendo frutos.',
+      { fontSize: '13px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif', lineSpacing: 4 }
+    ).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 20, cy + 110, '+R$ 200.000', {
+      fontSize: '24px', color: '#52b788', fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+
+    const btnY = cy + CARD_H - 50, BTN_W = 180, BTN_H = 34;
+    const btnG = this.add.graphics().setDepth(DEPTH);
+    const desBt = h => { btnG.clear(); btnG.fillStyle(h ? 0x2d6a4f : 0x1b4332, 1);
+      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6); };
+    desBt(false); objs.push(btnG);
+
+    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2, 'Excelente!', {
+      fontSize: '13px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    const z = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
+      .setDepth(DEPTH + 1).setInteractive({ useHandCursor: true });
+    z.on('pointerover', () => desBt(true)); z.on('pointerout', () => desBt(false));
+    z.on('pointerdown', () => this._fecharCard());
+    objs.push(z);
+    this.cardObjs = objs;
+  }
+
+  // -------------------------------------------------------------------------
+  // Consequência — Expansão do Garimpo
+  // -------------------------------------------------------------------------
+  _monitorarGarimpoExpansao(idx) {
+    const hex = this.hexagonos[idx];
+    if (hex.garimpoExpansaoTimer) { hex.garimpoExpansaoTimer.remove(); hex.garimpoExpansaoTimer = null; }
+
+    const dur = DEV_MODE ? 40000 : 180000;
+    hex.garimpoExpansaoTimer = this.time.delayedCall(dur, () => {
+      hex.garimpoExpansaoTimer = null;
+      if (hex.tipo !== 'garimpo') return;
+      this._garimpoExpandiu(idx);
+    });
+  }
+
+  _garimpoExpandiu(idx) {
+    const candidatos = this._vizinhosHex(idx).filter(vi => {
+      const h = this.hexagonos[vi];
+      return h.tipo !== 'garimpo' && h.tipo !== 'indigena' &&
+             !h.vigilancia && !h.bloqueado && h.tipo !== 'queimada';
+    });
+    if (!candidatos.length) return;
+
+    const alvoIdx = candidatos[Math.floor(Math.random() * candidatos.length)];
+    const alvo = this.hexagonos[alvoIdx];
+    alvo.perfil = PERFIS_GARIMPEIRO[Math.floor(Math.random() * PERFIS_GARIMPEIRO.length)];
+    alvo.bonusNegociacao = 0;
+    alvo.vigilancia = false;
+    estadoJogo.eventosSobrevividos++;
+    this._mudarEstadoHex(alvoIdx, 'garimpo');
+    this._mostrarAlerta(
+      '⛏️ O garimpo se expandiu! Neutralize-o antes que tome conta do território.',
+      '#6B6B6B', true
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Consequência — Queimada Criminosa (fumaça → incêndio)
+  // -------------------------------------------------------------------------
+  _monitorarQueimadaCriminosa(idx) {
+    const hex = this.hexagonos[idx];
+    if (hex.queimadaCrimTimer) { hex.queimadaCrimTimer.remove(); hex.queimadaCrimTimer = null; }
+
+    const dur = DEV_MODE ? 30000 : 120000;
+    hex.queimadaCrimTimer = this.time.delayedCall(dur, () => {
+      hex.queimadaCrimTimer = null;
+      if (hex.tipo !== 'pecuaria' || hex.semaforoPecuaria !== 'vermelho') return;
+
+      // Procura hexágono restaurado vizinho para atacar
+      const RESTAURADOS = ['floresta_pioneira', 'floresta_secundaria', 'floresta_climax',
+                           'floresta', 'saf', 'nascente_ativa', 'viveiro', 'manejo'];
+      const candidatos = this._vizinhosHex(idx).filter(vi =>
+        RESTAURADOS.includes(this.hexagonos[vi].tipo)
+      );
+      if (!candidatos.length) return;
+
+      const alvoIdx = candidatos[Math.floor(Math.random() * candidatos.length)];
+      this._iniciarFumaca(alvoIdx);
+    });
+  }
+
+  _iniciarFumaca(idx) {
+    const hex = this.hexagonos[idx];
+    if (hex._fumacaAtiva) return; // já em andamento
+    hex._fumacaAtiva = true;
+    estadoJogo.eventosSobrevividos++;
+
+    hex.fumaçaObj = this.add.text(hex.cx, hex.cy, '💨', {
+      fontSize: '22px',
+    }).setOrigin(0.5).setDepth(4.6);
+
+    this.tweens.add({
+      targets: hex.fumaçaObj, alpha: 0.2, duration: 450,
+      yoyo: true, repeat: -1,
+    });
+
+    const durFumaca = hex.vigilancia
+      ? (DEV_MODE ? 8000 : 40000)
+      : (DEV_MODE ? 5000 : 20000);
+
+    this._mostrarAlerta(
+      '💨 Fumaça detectada! Aja rápido para evitar o incêndio. [clique no hex]',
+      '#C1440E', true
+    );
+
+    hex.fumaçaTimer = this.time.delayedCall(durFumaca, () => {
+      hex.fumaçaTimer = null;
+      if (!hex._fumacaAtiva) return; // jogador agiu
+      if (hex.fumaçaObj && hex.fumaçaObj.active) { hex.fumaçaObj.destroy(); hex.fumaçaObj = null; }
+      hex._fumacaAtiva = false;
+      // Vira queimada
+      this._mudarEstadoHex(idx, 'queimada');
+      this._iniciarPropagacao(idx);
+      this._mostrarAlertaIncendio('🔥 Queimada criminosa se alastrou!');
+    });
+  }
+
+  // Menu de reação quando hex tem fumaça ativa
+  _menuFumaca(idx) {
+    const hex = this.hexagonos[idx];
+    const custoD = 30000;
+    const custoA = 1000;
+    const temD = estadoJogo.dinheiro >= custoD;
+    const temA = estadoJogo.agua !== null && estadoJogo.agua >= custoA;
+
+    this._abrirMenu(idx, {
+      titulo:         '💨 Fumaça Detectada!',
+      descricao:      'Aja agora para evitar o incêndio.',
+      tituloColor:    '#C1440E',
+      descricaoColor: '#e76f51',
+      acoes: [{
+        label:        '🚒 Sufocar incipiente',
+        custoStr:     `R$ 30.000 + 1.000L`,
+        desabilitado: !temD || !temA,
+        aviso:        !temD ? 'Saldo insuficiente' : !temA ? 'Água insuficiente' : null,
+        onPress: () => {
+          estadoJogo.dinheiro -= custoD;
+          estadoJogo.agua     -= custoA;
+          this.atualizarPainel();
+          this._fecharMenu();
+          this.selectedIdx = -1; this._desenharSelecao();
+          // Cancela o timer de queimada
+          if (hex.fumaçaTimer)  { hex.fumaçaTimer.remove(); hex.fumaçaTimer = null; }
+          if (hex.fumaçaObj && hex.fumaçaObj.active) { hex.fumaçaObj.destroy(); hex.fumaçaObj = null; }
+          hex._fumacaAtiva = false;
+          this._mostrarToast('✅ Fumaça controlada! Incêndio evitado.');
+        },
+      }],
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Consequência — Invasão de Pasto (após recusa do fazendeiro)
+  // -------------------------------------------------------------------------
+  _iniciarInvasaoPasto(idx) {
+    const hex = this.hexagonos[idx];
+    if (hex.invasaoTimer) { hex.invasaoTimer.remove(); hex.invasaoTimer = null; }
+
+    // Candidatos: hexágonos vizinhos sem proteção
+    const VAZIOS = ['solo', 'solo_preparado'];
+    const candidatos = this._vizinhosHex(idx).filter(vi =>
+      VAZIOS.includes(this.hexagonos[vi].tipo)
+    );
+    if (!candidatos.length) return;
+
+    const alvoIdx = candidatos[Math.floor(Math.random() * candidatos.length)];
+    const alvoHex = this.hexagonos[alvoIdx];
+
+    // Aviso visual sobre o alvo
+    const avisoObj = this.add.text(alvoHex.cx, alvoHex.cy - 28, '⚠️', {
+      fontSize: '18px',
+    }).setOrigin(0.5).setDepth(4.6);
+    this.tweens.add({ targets: avisoObj, alpha: 0.2, duration: 400, yoyo: true, repeat: -1 });
+
+    this._mostrarAlerta(
+      '🐄 Invasão de pasto iminente! Inicie negociação para evitar.',
+      '#C8A951', true
+    );
+
+    const durAviso = DEV_MODE ? 8000 : 30000;
+    hex.invasaoTimer = this.time.delayedCall(durAviso, () => {
+      hex.invasaoTimer = null;
+      if (avisoObj.active) avisoObj.destroy();
+      if (hex.tipo !== 'pecuaria') return; // já foi resolvido
+
+      // Converte para pecuária
+      const p = PERFIS_FAZENDEIRO[Math.floor(Math.random() * PERFIS_FAZENDEIRO.length)];
+      const nome = NOMES_FAZENDEIROS[Math.floor(Math.random() * NOMES_FAZENDEIROS.length)];
+      alvoHex.semaforoPecuaria  = 'vermelho';
+      alvoHex.perfilFazendeiro  = { ...p, nomePropio: nome, idade: 35 + Math.floor(Math.random() * 34) };
+      alvoHex.bonusContatoPec   = 0;
+      alvoHex.contatoBloqueado  = false;
+      alvoHex.parceiriaPec      = null;
+      alvoHex.receitaSAF        = 0;
+      alvoHex.expansaoTimer     = null;
+      this._mudarEstadoHex(alvoIdx, 'pecuaria');
+      this._mostrarAlerta('🐄 Invasão de pasto! Um hexágono foi convertido em pecuária.', '#C8A951', true);
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Consequência — Crime Florestal (ciclo periódico)
+  // -------------------------------------------------------------------------
+  _monitorarCrimeFlorestal() {
+    const dur = DEV_MODE ? 60000 : 300000; // 5 min / 60s dev
+    this.time.addEvent({ delay: dur, loop: true, callback: () => {
+      this.hexagonos.forEach((hex, i) => {
+        if (!['floresta_secundaria', 'floresta_climax'].includes(hex.tipo)) return;
+        if (hex.vigilancia) return;
+        if (Math.random() > 0.20) return;
+
+        const novoTipo = hex.tipo === 'floresta_climax' ? 'floresta_secundaria' : 'floresta_pioneira';
+        if (hex.evolucaoTimer) { hex.evolucaoTimer.remove(); hex.evolucaoTimer = null; }
+        this._mudarEstadoHex(i, novoTipo);
+        this._mostrarAlerta(
+          '🪓 Crime florestal detectado! Uma área foi degradada ilegalmente.',
+          '#C1440E', true
+        );
+      });
+    }});
+  }
+
+  // -------------------------------------------------------------------------
+  // Game Over — monitoramento contínuo
+  // -------------------------------------------------------------------------
+  _verificarGameOver() {
+    this.time.addEvent({ delay: 1000, loop: true, callback: () => {
+      if (estadoJogo.dinheiro > 0 || this._gameOverAtivado) return;
+      this._gameOverAtivado = true;
+      this._mostrarGameOver();
+    }});
+  }
+
+  _mostrarGameOver() {
+    this.time.removeAllEvents();
+    const { width, height } = this.scale;
+    const DEPTH = 50;
+
+    const ov = this.add.graphics().setDepth(DEPTH);
+    ov.fillStyle(0x0d2818, 0.97);
+    ov.fillRect(0, 0, width, height);
+
+    this.add.text(width / 2, height / 2 - 160, '💸', { fontSize: '72px' })
+      .setOrigin(0.5).setDepth(DEPTH);
+
+    this.add.text(width / 2, height / 2 - 80, 'Recursos esgotados', {
+      fontSize: '36px', color: '#e76f51',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH);
+
+    this.add.text(width / 2, height / 2 - 32,
+      'Sua ONG ficou sem recursos para continuar a restauração.',
+      { fontSize: '16px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif' }
+    ).setOrigin(0.5).setDepth(DEPTH);
+
+    // Estatísticas simples
+    const nClimax    = this.hexagonos.filter(h => h.tipo === 'floresta_climax').length;
+    const nSecund    = this.hexagonos.filter(h => h.tipo === 'floresta_secundaria').length;
+    const nFauna     = estadoJogo.fauna.length;
+    this.add.text(width / 2, height / 2 + 14,
+      `🌳 ${nClimax} clímax · 🌲 ${nSecund} secundárias · 🐾 ${nFauna}/${FAUNA_CATALOGO.length} espécies`,
+      { fontSize: '14px', color: '#74c69d', fontFamily: 'Inter, sans-serif' }
+    ).setOrigin(0.5).setDepth(DEPTH);
+
+    // Botões
+    const BTN_W = 220, BTN_H = 44, GAP = 20;
+    const totalBtnW = BTN_W * 2 + GAP;
+    const btn1X = width / 2 - totalBtnW / 2;
+    const btn2X = btn1X + BTN_W + GAP;
+    const btnY  = height / 2 + 80;
+
+    const _btn = (bx, label, cor, onPress) => {
+      const g = this.add.graphics().setDepth(DEPTH);
+      const des = h => { g.clear(); g.fillStyle(h ? cor + 0x222222 : cor, 1);
+        g.fillRoundedRect(bx, btnY, BTN_W, BTN_H, 8); };
+      des(false);
+      this.add.text(bx + BTN_W / 2, btnY + BTN_H / 2, label, {
+        fontSize: '14px', color: '#ffffff',
+        fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+      }).setOrigin(0.5).setDepth(DEPTH);
+      const z = this.add.zone(bx + BTN_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
+        .setDepth(DEPTH + 1).setInteractive({ useHandCursor: true });
+      z.on('pointerdown', onPress);
+    };
+
+    _btn(btn1X, 'Tentar novamente',   0x1b4332, () => this.scene.start('Jogo'));
+    _btn(btn2X, 'Mudar dificuldade',  0x3d1515, () => this.scene.start('Onboarding2'));
+  }
+
   // -------------------------------------------------------------------------
   // Reocupação do garimpo (ciclo automático)
   // -------------------------------------------------------------------------
@@ -3836,7 +5094,13 @@ class Jogo extends Phaser.Scene {
   _formatarRecurso(key) {
     const v = estadoJogo[key];
     if (key === 'dinheiro') return `R$ ${v.toLocaleString('pt-BR')}`;
-    if (key === 'equipe')   return `${v.length} membro${v.length !== 1 ? 's' : ''}`;
+    if (key === 'equipe') {
+      const n = v.length;
+      const custo = v.reduce((s, m) => s + m.custo, 0);
+      return custo > 0
+        ? `${n} — R$${(custo / 1000).toFixed(0)}k/ciclo`
+        : `${n} membro${n !== 1 ? 's' : ''}`;
+    }
     if (v === null || v === undefined) return '—';
     if (key === 'agua')    return `${v.toLocaleString('pt-BR')}L`;
     if (key === 'energia') return `${v}kWh`;
@@ -3874,89 +5138,149 @@ class TelaVitoria extends Phaser.Scene {
 
   create() {
     const { width, height } = this.scale;
-    const cx = width / 2, cy = height / 2;
+    const cx = width / 2;
 
     // Fundo
     const bg = this.add.graphics();
-    bg.fillStyle(0x071a0e, 1);
+    bg.fillStyle(0x0d2818, 1);
     bg.fillRect(0, 0, width, height);
 
-    // Borda dourada decorativa
-    const borda = this.add.graphics();
-    borda.lineStyle(3, 0xC8A951, 1);
-    borda.strokeRect(20, 20, width - 40, height - 40);
-
-    // Emoji onça centralizado
-    this.add.text(cx, cy - 190, '🐆', { fontSize: '90px' }).setOrigin(0.5);
-
-    // Título
-    this.add.text(cx, cy - 90, 'Ecossistema Restaurado!', {
-      fontSize: '36px', color: '#C8A951',
-      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-    }).setOrigin(0.5);
-
-    // ONG e estatísticas
-    const ong = dadosJogo.nomeONG || 'Sua ONG';
-    this.add.text(cx, cy - 42, `${ong} transformou a Amazônia.`, {
-      fontSize: '18px', color: '#d8f3dc',
-      fontFamily: 'Inter, sans-serif',
-    }).setOrigin(0.5);
-
-    const nFauna = estadoJogo.fauna.length;
-    const pctFauna = Math.round((nFauna / FAUNA_CATALOGO.length) * 100);
-    const nClimax  = Math.round(estadoJogo.climax);
-
-    this.add.text(cx, cy + 10,
-      `🌳 ${nClimax}% do mapa em Floresta Clímax\n` +
-      `🐾 ${nFauna}/${FAUNA_CATALOGO.length} espécies desbloqueadas (${pctFauna}%)\n` +
-      `💰 R$ ${estadoJogo.dinheiro.toLocaleString('pt-BR')} em caixa`,
-      {
-        fontSize: '16px', color: '#74c69d',
-        fontFamily: 'Inter, sans-serif', lineSpacing: 10, align: 'center',
-      }
-    ).setOrigin(0.5);
-
-    this.add.text(cx, cy + 130,
-      '"Onde há onça, há ecossistema completo."',
-      {
-        fontSize: '14px', color: '#a8c5b0', fontStyle: 'italic',
-        fontFamily: 'Inter, sans-serif',
-      }
-    ).setOrigin(0.5);
-
-    // Botão jogar novamente
-    const BTN_W = 240, BTN_H = 44;
-    const btnX = cx - BTN_W / 2, btnY = cy + 185;
-    const btnG = this.add.graphics();
-    const desBt = h => {
-      btnG.clear();
-      btnG.fillStyle(h ? 0x9a7d2a : 0x6b551a, 1);
-      btnG.fillRoundedRect(btnX, btnY, BTN_W, BTN_H, 8);
-    };
-    desBt(false);
-
-    this.add.text(cx, btnY + BTN_H / 2, 'Jogar novamente', {
-      fontSize: '15px', color: '#ffffff',
-      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
-    }).setOrigin(0.5);
-
-    const z = this.add.zone(cx, btnY + BTN_H / 2, BTN_W, BTN_H)
-      .setInteractive({ useHandCursor: true });
-    z.on('pointerover', () => desBt(true));
-    z.on('pointerout',  () => desBt(false));
-    z.on('pointerdown', () => this.scene.start('TelaInicial'));
-
-    // Partículas de vitória — estrelas simples piscando
-    for (let i = 0; i < 18; i++) {
-      const px = Phaser.Math.Between(40, width - 40);
-      const py = Phaser.Math.Between(40, height - 40);
-      const star = this.add.text(px, py, '✨', { fontSize: '14px' }).setAlpha(0);
+    // Estrelas decorativas
+    for (let i = 0; i < 14; i++) {
+      const star = this.add.text(
+        Phaser.Math.Between(20, width - 20),
+        Phaser.Math.Between(20, height - 20),
+        '✨', { fontSize: '12px' }
+      ).setAlpha(0);
       this.tweens.add({
-        targets: star, alpha: 1, duration: 600,
-        delay: i * 120, yoyo: true, repeat: -1,
-        ease: 'Sine.easeInOut',
+        targets: star, alpha: 0.8, duration: 500 + i * 60,
+        delay: i * 100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
       });
     }
+
+    // Topo — ONG
+    const ong = dadosJogo.nomeONG || 'Sua ONG';
+    this.add.text(cx, 36, ong, {
+      fontSize: '18px', color: '#52b788',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    this.add.text(cx, 60, 'restaurou a Amazônia', {
+      fontSize: '14px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+    }).setOrigin(0.5);
+
+    // ── Cards de dados ──────────────────────────────────────────────────────
+    const CARD_W = 185, CARD_H = 88, GAP = 14;
+    const totalW = 3 * CARD_W + 2 * GAP;
+    const startX = cx - totalW / 2;
+    const row1Y   = 90, row2Y = row1Y + CARD_H + GAP;
+
+    // Tempo jogado
+    const ms = Date.now() - (estadoJogo.tempoInicio || Date.now());
+    const min = Math.floor(ms / 60000), sec = Math.floor((ms % 60000) / 1000);
+    const tempoStr = `${min}m ${sec}s`;
+
+    const dados = [
+      { icon: '⏱️', label: 'Tempo jogado',       valor: tempoStr },
+      { icon: '💰', label: 'Saldo final',         valor: `R$ ${estadoJogo.dinheiro.toLocaleString('pt-BR')}` },
+      { icon: '🎯', label: 'Dificuldade',         valor: dadosJogo.dificuldade || '—' },
+      { icon: '🤝', label: 'Negociações',         valor: String(estadoJogo.negociacoesBemSucedidas) },
+      { icon: '🔥', label: 'Eventos enfrentados', valor: String(estadoJogo.eventosSobrevividos) },
+      { icon: '🌳', label: 'Floresta Clímax',     valor: `${Math.round(estadoJogo.climax)}%` },
+    ];
+
+    dados.forEach(({ icon, label, valor }, i) => {
+      const col  = i % 3;
+      const rowY = i < 3 ? row1Y : row2Y;
+      const bx   = startX + col * (CARD_W + GAP);
+      const by   = rowY;
+
+      const g = this.add.graphics();
+      g.fillStyle(0x1b4332, 1);
+      g.fillRoundedRect(bx, by, CARD_W, CARD_H, 8);
+      g.lineStyle(1, 0x2d6a4f, 1);
+      g.strokeRoundedRect(bx, by, CARD_W, CARD_H, 8);
+
+      this.add.text(bx + CARD_W / 2, by + 20, icon, { fontSize: '20px' }).setOrigin(0.5);
+      this.add.text(bx + CARD_W / 2, by + 46, valor, {
+        fontSize: '16px', color: '#d8f3dc',
+        fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+      }).setOrigin(0.5);
+      this.add.text(bx + CARD_W / 2, by + 68, label, {
+        fontSize: '11px', color: '#74c69d',
+        fontFamily: 'Inter, sans-serif', letterSpacing: 0.5,
+      }).setOrigin(0.5);
+    });
+
+    // ── Fauna desbloqueada ──────────────────────────────────────────────────
+    const faunaY = row2Y + CARD_H + 22;
+    this.add.text(cx, faunaY, 'Fauna desbloqueada', {
+      fontSize: '12px', color: '#74c69d', fontFamily: 'Inter, sans-serif', letterSpacing: 1,
+    }).setOrigin(0.5);
+
+    const faunaEmojiW = 56;
+    const totalFaunaW = FAUNA_CATALOGO.length * faunaEmojiW;
+    const faunaStartX = cx - totalFaunaW / 2 + faunaEmojiW / 2;
+    FAUNA_CATALOGO.forEach((animal, i) => {
+      const coletado = estadoJogo.fauna.includes(animal.id);
+      const ex = faunaStartX + i * faunaEmojiW;
+      const ey = faunaY + 28;
+      const txt = this.add.text(ex, ey, animal.emoji, { fontSize: '26px' }).setOrigin(0.5);
+      if (!coletado) txt.setAlpha(0.18);
+    });
+
+    // ── Mensagem final ──────────────────────────────────────────────────────
+    const nFauna = estadoJogo.fauna.length;
+    const saldo  = estadoJogo.dinheiro;
+    let msg, msgCor;
+    if (saldo > 500000 && nFauna === FAUNA_CATALOGO.length) {
+      msg = 'Gestão excepcional. Você demonstrou que restauração florestal e bioeconomia andam juntas.';
+      msgCor = '#52b788';
+    } else if (saldo >= 100000 && nFauna >= 4) {
+      msg = 'Missão cumprida. O território está restaurado e a biodiversidade retornou.';
+      msgCor = '#74c69d';
+    } else {
+      msg = 'Você chegou lá. Foi difícil, mas a floresta está de pé.';
+      msgCor = '#C8A951';
+    }
+
+    const msgY = faunaY + 72;
+    this.add.text(cx, msgY, msg, {
+      fontSize: '14px', color: msgCor, fontFamily: 'Inter, sans-serif',
+      fontStyle: 'italic', wordWrap: { width: 700 }, align: 'center',
+    }).setOrigin(0.5);
+
+    // ── Botões ──────────────────────────────────────────────────────────────
+    const BTN_W = 220, BTN_H = 44, BTN_GAP = 20;
+    const btnRowY  = msgY + 52;
+    const btn1X    = cx - BTN_W - BTN_GAP / 2;
+    const btn2X    = cx + BTN_GAP / 2;
+
+    const _botao = (bx, label, cor, onPress) => {
+      const g = this.add.graphics();
+      const des = h => {
+        g.clear();
+        g.fillStyle(h ? cor + 0x111111 : cor, 1);
+        g.fillRoundedRect(bx, btnRowY, BTN_W, BTN_H, 8);
+      };
+      des(false);
+      this.add.text(bx + BTN_W / 2, btnRowY + BTN_H / 2, label, {
+        fontSize: '14px', color: '#ffffff',
+        fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+      }).setOrigin(0.5);
+      const z = this.add.zone(bx + BTN_W / 2, btnRowY + BTN_H / 2, BTN_W, BTN_H)
+        .setInteractive({ useHandCursor: true });
+      z.on('pointerover', () => des(true));
+      z.on('pointerout',  () => des(false));
+      z.on('pointerdown', onPress);
+    };
+
+    _botao(btn1X, '🔄 Jogar novamente',  0x1b4332, () => this.scene.start('Onboarding1'));
+    _botao(btn2X, '📊 Ver ranking',       0x4a3808, () => {
+      // Fase 15 — placeholder
+      this.add.text(cx, btnRowY + BTN_H + 20, 'Ranking disponível na Fase 15!', {
+        fontSize: '12px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+      }).setOrigin(0.5);
+    });
   }
 }
 
