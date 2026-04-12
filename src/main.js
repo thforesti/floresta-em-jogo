@@ -688,6 +688,9 @@ class Jogo extends Phaser.Scene {
   constructor() { super({ key: 'Jogo' }); }
 
   preload() {
+    this.load.on('loaderror', (file) => {
+      console.error('[Phaser] Erro ao carregar textura:', file.key, '→', file.url);
+    });
     this.load.image('hex-solo-degradado',   'assets/hexagonos/solo-degradado.png');
     this.load.image('hex-floresta-climax',   'assets/hexagonos/floresta-climax.png');
     this.load.image('hex-floresta-pioneira', 'assets/hexagonos/floresta-pioneira.png');
@@ -1224,11 +1227,13 @@ class Jogo extends Phaser.Scene {
     for (let i = 1; i < 6; i++) maskG.lineTo(hex.pts[i].x, hex.pts[i].y);
     maskG.closePath();
     maskG.fillPath();
+    maskG.setVisible(false); // não renderiza na cena — usado só como clip
 
     const geoMask = maskG.createGeometryMask();
 
+    // Pointy-top hex com raio R: width = R*sqrt(3), height = R*2
     const img = this.add.image(hex.cx, hex.cy, texKey)
-      .setDisplaySize(R * Math.sqrt(3) * 2, R * 2.1)
+      .setDisplaySize(R * Math.sqrt(3), R * 2)
       .setDepth(depth)
       .setMask(geoMask);
 
