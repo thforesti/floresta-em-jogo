@@ -409,8 +409,9 @@ const TIPOS = {
   indigena:          { label: 'Área indígena',         emoji: '🪶', cor: 0x7B4FA6, hex: '#7B4FA6' },
   pecuaria:          { label: 'Pecuária/Soja',         emoji: '🐄', cor: 0xC8A951, hex: '#C8A951' },
   floresta:          { label: 'Floresta estabelecida', emoji: '🌳', cor: 0x52b788, hex: '#52b788' },
-  solo_preparado:    { label: 'Solo Preparado',        emoji: '⛏️',  cor: 0x5C4A1E, hex: '#5C4A1E' },
-  floresta_pioneira: { label: 'Floresta Pioneira',     emoji: '🌿', cor: 0x74c69d, hex: '#74c69d' },
+  solo_preparado:       { label: 'Solo Preparado',        emoji: '⛏️',  cor: 0x5C4A1E, hex: '#5C4A1E' },
+  floresta_pioneira:    { label: 'Floresta Pioneira',     emoji: '🌿', cor: 0x74c69d, hex: '#74c69d' },
+  garimpo_neutralizado: { label: 'Garimpo Neutralizado',  emoji: '🟫', cor: 0x8B6914, hex: '#8B6914' },
 };
 
 const DISTRIBUICAO = {
@@ -467,14 +468,21 @@ const ACOES = {
 };
 
 const DESCRICOES = {
-  solo:     'Terra erodida e improdutiva.',
-  garimpo:  'Área com extração ilegal de minérios.',
-  nascente: 'Fonte hídrica em estado crítico.',
-  queimada: 'Área devastada por incêndio.',
-  indigena: 'Território de comunidade indígena.',
-  pecuaria: 'Área de pastagem ou cultivo extensivo.',
-  floresta: 'Trecho de floresta nativa preservada.',
+  solo:                 'Terra erodida e improdutiva.',
+  garimpo:              'Área com extração ilegal de minérios.',
+  nascente:             'Fonte hídrica em estado crítico.',
+  queimada:             'Área devastada por incêndio.',
+  indigena:             'Território de comunidade indígena.',
+  pecuaria:             'Área de pastagem ou cultivo extensivo.',
+  floresta:             'Trecho de floresta nativa preservada.',
+  garimpo_neutralizado: 'Área com extração encerrada. Requer fitorremediação.',
 };
+
+const PERFIS_GARIMPEIRO = [
+  { nome: 'O Migrante',          descricao: 'Veio de longe em busca de sustento. Aberto a alternativas.',   bonus: 0.10 },
+  { nome: 'O Veterano',          descricao: 'Conhece bem a região e resiste fortemente à negociação.',       bonus: -0.10 },
+  { nome: 'O Jovem Desesperado', descricao: 'Situação precária, mas mais receptivo ao diálogo e às leis.', bonus: 0.05 },
+];
 
 // ---------------------------------------------------------------------------
 // Jogo — mapa hexagonal + painel de recursos + interação + mecânicas
@@ -631,7 +639,17 @@ class Jogo extends Phaser.Scene {
 
       const polygon = new Phaser.Geom.Polygon(pts.flatMap(p => [p.x, p.y]));
 
-      this.hexagonos.push({ tipo, info, row, col, cx, cy, pts, polygon, emojiTxt, bloqueado: false });
+      // Garimpo: sorteio de perfil do garimpeiro e bonus acumulado de tentativas
+      const perfil           = tipo === 'garimpo'
+        ? PERFIS_GARIMPEIRO[Math.floor(Math.random() * PERFIS_GARIMPEIRO.length)]
+        : null;
+      const bonusNegociacao  = 0;   // aumenta +0.10 a cada tentativa frustrada (R$5k)
+      const vigilancia       = false; // ativada pelo menu pós-neutralização
+
+      this.hexagonos.push({
+        tipo, info, row, col, cx, cy, pts, polygon, emojiTxt,
+        bloqueado: false, perfil, bonusNegociacao, vigilancia,
+      });
     });
 
     // -----------------------------------------------------------------------
@@ -641,9 +659,12 @@ class Jogo extends Phaser.Scene {
     this.selectedIdx = -1;
     this.menuObjs    = [];
     this.menuBounds  = null;
+    this.cardObjs    = [];
 
     this.input.on('pointermove', this._onMove,  this);
     this.input.on('pointerdown', this._onClick, this);
+
+    this._cicloReocupacao();
   }
 
   // -------------------------------------------------------------------------
@@ -659,6 +680,9 @@ class Jogo extends Phaser.Scene {
   }
 
   _onClick(pointer) {
+    // Card modal aberto — bloqueia qualquer outra interação
+    if (this.cardObjs.length > 0) return;
+
     if (this.menuBounds) {
       const { x, y, w, h } = this.menuBounds;
       if (pointer.x >= x && pointer.x <= x + w &&
@@ -677,9 +701,11 @@ class Jogo extends Phaser.Scene {
 
       // Despacha para o builder correto por tipo
       switch (hex.tipo) {
-        case 'solo':           this._menuSoloDegradado(idx); break;
-        case 'solo_preparado': this._menuSoloPreparado(idx); break;
-        default:               this._abrirMenu(idx);
+        case 'solo':                 this._menuSoloDegradado(idx);     break;
+        case 'solo_preparado':       this._menuSoloPreparado(idx);     break;
+        case 'garimpo':              this._cardGarimpeiro(idx);        break;
+        case 'garimpo_neutralizado': this._menuGarimpoNeutralizado(idx); break;
+        default:                     this._abrirMenu(idx);
       }
     } else {
       this.selectedIdx = -1;
@@ -1010,6 +1036,503 @@ class Jogo extends Phaser.Scene {
     });
 
     this.menuObjs = objs;
+  }
+
+  // -------------------------------------------------------------------------
+  // Garimpo — card de perfil do garimpeiro
+  // -------------------------------------------------------------------------
+  _cardGarimpeiro(idx) {
+    this._fecharMenu();
+    this._fecharCard();
+
+    const hex    = this.hexagonos[idx];
+    const perfil = hex.perfil;
+    const chance = this._calcularChance(hex);
+    const pct    = Math.round(chance * 100);
+
+    const { width, height } = this.scale;
+    const CARD_W = 380, CARD_H = 270;
+    const cx = width  / 2 - CARD_W / 2;
+    const cy = height / 2 - CARD_H / 2;
+    const DEPTH = 20;
+    const objs  = [];
+
+    // Fundo escurecido
+    const overlay = this.add.graphics().setDepth(DEPTH - 1);
+    overlay.fillStyle(0x000000, 0.55);
+    overlay.fillRect(0, 0, width, height);
+    objs.push(overlay);
+
+    // Card
+    const bgG = this.add.graphics().setDepth(DEPTH);
+    bgG.fillStyle(0x0d2818, 1);
+    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    bgG.lineStyle(1.5, 0x2d6a4f, 1);
+    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    objs.push(bgG);
+
+    // Cabeçalho
+    objs.push(this.add.text(cx + 20, cy + 18, '⛏️  Garimpo Ilegal', {
+      fontSize: '16px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 20, cy + 44, 'Garimpeiro identificado:', {
+      fontSize: '11px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+    }).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 20, cy + 62, perfil.nome, {
+      fontSize: '18px', color: '#52b788',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 20, cy + 90, perfil.descricao, {
+      fontSize: '12px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
+      wordWrap: { width: CARD_W - 40 },
+    }).setDepth(DEPTH));
+
+    // Separador
+    const divG = this.add.graphics().setDepth(DEPTH);
+    divG.lineStyle(1, 0x2d6a4f, 0.6);
+    divG.lineBetween(cx + 20, cy + 128, cx + CARD_W - 20, cy + 128);
+    objs.push(divG);
+
+    // Chance
+    objs.push(this.add.text(cx + 20, cy + 142, `Chance de negociação bem-sucedida: ${pct}%`, {
+      fontSize: '13px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+    }).setDepth(DEPTH));
+
+    if (hex.bonusNegociacao > 0) {
+      objs.push(this.add.text(cx + 20, cy + 162,
+        `(+${Math.round(hex.bonusNegociacao * 100)}% acumulado de tentativas anteriores)`, {
+        fontSize: '11px', color: '#52b788', fontFamily: 'Inter, sans-serif',
+      }).setDepth(DEPTH));
+    }
+
+    // Botões
+    const btnY    = cy + CARD_H - 52;
+    const BTN_W   = 160, BTN_H = 38;
+
+    // Negociar
+    const btnNegG = this.add.graphics().setDepth(DEPTH);
+    const desenhaNeG = (h) => {
+      btnNegG.clear();
+      btnNegG.fillStyle(h ? 0x2d6a4f : 0x1b4332, 1);
+      btnNegG.fillRoundedRect(cx + 20, btnY, BTN_W, BTN_H, 6);
+    };
+    desenhaNeG(false);
+    objs.push(btnNegG);
+
+    objs.push(this.add.text(cx + 20 + BTN_W / 2, btnY + BTN_H / 2, 'Tentar negociar', {
+      fontSize: '13px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    const zoneNeg = this.add.zone(cx + 20 + BTN_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
+      .setDepth(DEPTH).setInteractive({ useHandCursor: true });
+    zoneNeg.on('pointerover', () => desenhaNeG(true));
+    zoneNeg.on('pointerout',  () => desenhaNeG(false));
+    zoneNeg.on('pointerdown', () => {
+      this._fecharCard();
+      this._executarNegociacao(idx);
+    });
+    objs.push(zoneNeg);
+
+    // Fechar
+    const btnFchG = this.add.graphics().setDepth(DEPTH);
+    const desenhFch = (h) => {
+      btnFchG.clear();
+      btnFchG.fillStyle(h ? 0x2d1a0a : 0x1b0e06, 1);
+      btnFchG.fillRoundedRect(cx + CARD_W - 20 - BTN_W, btnY, BTN_W, BTN_H, 6);
+    };
+    desenhFch(false);
+    objs.push(btnFchG);
+
+    objs.push(this.add.text(cx + CARD_W - 20 - BTN_W / 2, btnY + BTN_H / 2, 'Fechar', {
+      fontSize: '13px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    const zoneFch = this.add.zone(cx + CARD_W - 20 - BTN_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
+      .setDepth(DEPTH).setInteractive({ useHandCursor: true });
+    zoneFch.on('pointerover', () => desenhFch(true));
+    zoneFch.on('pointerout',  () => desenhFch(false));
+    zoneFch.on('pointerdown', () => {
+      this._fecharCard();
+      this.selectedIdx = -1;
+      this._desenharSelecao();
+    });
+    objs.push(zoneFch);
+
+    this.cardObjs = objs;
+  }
+
+  _fecharCard() {
+    this.cardObjs.forEach(o => o.destroy());
+    this.cardObjs = [];
+  }
+
+  _calcularChance(hex) {
+    const base  = 0.45;
+    const bonus = (hex.perfil?.bonus ?? 0) + hex.bonusNegociacao;
+    return Math.min(0.90, Math.max(0.05, base + bonus));
+  }
+
+  // -------------------------------------------------------------------------
+  // Garimpo — rolar dados e despachar resultado
+  // -------------------------------------------------------------------------
+  _executarNegociacao(idx) {
+    const hex    = this.hexagonos[idx];
+    const chance = this._calcularChance(hex);
+
+    if (Math.random() < chance) {
+      // Sucesso
+      hex.bonusNegociacao = 0;
+      this._mudarEstadoHex(idx, 'garimpo_neutralizado');
+      this._mostrarToast('✅ Negociação bem-sucedida! Garimpeiros saíram da área.');
+      this.selectedIdx = -1;
+      this._desenharSelecao();
+    } else {
+      // Falha
+      this._mostrarFalhaOpcoes(idx);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Garimpo — opções após falha na negociação
+  // -------------------------------------------------------------------------
+  _mostrarFalhaOpcoes(idx) {
+    this._fecharCard();
+
+    const hex = this.hexagonos[idx];
+    const { width, height } = this.scale;
+    const CARD_W = 380, CARD_H = 240;
+    const cx = width  / 2 - CARD_W / 2;
+    const cy = height / 2 - CARD_H / 2;
+    const DEPTH = 20;
+    const objs  = [];
+
+    const overlay = this.add.graphics().setDepth(DEPTH - 1);
+    overlay.fillStyle(0x000000, 0.55);
+    overlay.fillRect(0, 0, width, height);
+    objs.push(overlay);
+
+    const bgG = this.add.graphics().setDepth(DEPTH);
+    bgG.fillStyle(0x1a0a0a, 1);
+    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    bgG.lineStyle(1.5, 0xc1440e, 1);
+    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    objs.push(bgG);
+
+    objs.push(this.add.text(cx + 20, cy + 18, '❌ Negociação falhou', {
+      fontSize: '16px', color: '#e76f51',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 20, cy + 46, 'Os garimpeiros recusaram o diálogo. O que fazer?', {
+      fontSize: '12px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
+      wordWrap: { width: CARD_W - 40 },
+    }).setDepth(DEPTH));
+
+    const BTN_W = CARD_W - 40, BTN_H = 48;
+
+    // Opção 1: Aguardar
+    const btn1Y = cy + 92;
+    const btn1G = this.add.graphics().setDepth(DEPTH);
+    const desBt1 = (h) => {
+      btn1G.clear();
+      const semSaldo = estadoJogo.dinheiro < 5000;
+      btn1G.fillStyle(semSaldo ? 0x132b1f : (h ? 0x2d6a4f : 0x1b4332), 1);
+      btn1G.fillRoundedRect(cx + 20, btn1Y, BTN_W, BTN_H, 6);
+    };
+    desBt1(false);
+    objs.push(btn1G);
+
+    objs.push(this.add.text(cx + 30, btn1Y + 15, 'Aguardar e tentar novamente', {
+      fontSize: '13px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+    objs.push(this.add.text(cx + 30, btn1Y + 33, 'R$ 5.000 — +10% na próxima tentativa', {
+      fontSize: '11px', color: '#52b788', fontFamily: 'Inter, sans-serif',
+    }).setDepth(DEPTH));
+
+    if (estadoJogo.dinheiro >= 5000) {
+      const z1 = this.add.zone(cx + 20 + BTN_W / 2, btn1Y + BTN_H / 2, BTN_W, BTN_H)
+        .setDepth(DEPTH).setInteractive({ useHandCursor: true });
+      z1.on('pointerover', () => desBt1(true));
+      z1.on('pointerout',  () => desBt1(false));
+      z1.on('pointerdown', () => {
+        estadoJogo.dinheiro -= 5000;
+        hex.bonusNegociacao = Math.min(0.30, hex.bonusNegociacao + 0.10);
+        this.atualizarPainel();
+        this._fecharCard();
+        this._mostrarToast('Equipe aguardando... bonus acumulado para próxima tentativa.');
+        this.selectedIdx = -1;
+        this._desenharSelecao();
+      });
+      objs.push(z1);
+    }
+
+    // Opção 2: Denunciar ao Ibama
+    const btn2Y = btn1Y + BTN_H + 10;
+    const btn2G = this.add.graphics().setDepth(DEPTH);
+    const desBt2 = (h) => {
+      btn2G.clear();
+      btn2G.fillStyle(h ? 0x4a1a06 : 0x2d1008, 1);
+      btn2G.fillRoundedRect(cx + 20, btn2Y, BTN_W, BTN_H, 6);
+    };
+    desBt2(false);
+    objs.push(btn2G);
+
+    objs.push(this.add.text(cx + 30, btn2Y + 15, '🚨 Denunciar ao Ibama', {
+      fontSize: '13px', color: '#e76f51',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+    objs.push(this.add.text(cx + 30, btn2Y + 33, 'Gratuito — resultado incerto (45s)', {
+      fontSize: '11px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+    }).setDepth(DEPTH));
+
+    const z2 = this.add.zone(cx + 20 + BTN_W / 2, btn2Y + BTN_H / 2, BTN_W, BTN_H)
+      .setDepth(DEPTH).setInteractive({ useHandCursor: true });
+    z2.on('pointerover', () => desBt2(true));
+    z2.on('pointerout',  () => desBt2(false));
+    z2.on('pointerdown', () => {
+      this._fecharCard();
+      this._fluxoIbama(idx);
+    });
+    objs.push(z2);
+
+    this.cardObjs = objs;
+  }
+
+  // -------------------------------------------------------------------------
+  // Garimpo — fluxo Ibama (timer + resultado aleatório)
+  // -------------------------------------------------------------------------
+  _fluxoIbama(idx) {
+    const hex = this.hexagonos[idx];
+    hex.bloqueado = true;
+
+    const dur = DEV_MODE ? 8 : 45;
+    this.selectedIdx = -1;
+    this._desenharSelecao();
+
+    this._mostrarToast(`🚨 Denúncia registrada. Aguardando resposta do Ibama... (${dur}s)`);
+    this._piscarHex(idx);
+
+    this._iniciarTimer(idx, dur, () => {
+      const r = Math.random();
+      if (r < 0.40) {
+        // Sucesso: garimpeiros removidos
+        hex.bonusNegociacao = 0;
+        this._mudarEstadoHex(idx, 'garimpo_neutralizado');
+        this._mostrarToast('✅ Ibama atuou! Garimpeiros removidos da área.');
+      } else if (r < 0.75) {
+        // Represália: -R$20k, sem mudança
+        estadoJogo.dinheiro -= 20000;
+        this.atualizarPainel();
+        this._mostrarCartaoFalha(idx,
+          'Represália dos garimpeiros! Equipamentos danificados. -R$ 20.000');
+      } else {
+        // Sem ação
+        this._mostrarCartaoFalha(idx,
+          'Ibama não teve recursos para atuar. Área continua com garimpo ativo.');
+      }
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Garimpo — piscada visual no hex durante espera Ibama
+  // -------------------------------------------------------------------------
+  _piscarHex(idx) {
+    const hex = this.hexagonos[idx];
+    let  vis  = true;
+    const ev  = this.time.addEvent({
+      delay: 400, loop: true,
+      callback: () => {
+        if (!hex.bloqueado) { ev.remove(); return; }
+        vis = !vis;
+        this.hoverG.clear();
+        if (vis) {
+          this.hoverG.fillStyle(0xe76f51, 0.35);
+          this.hoverG.beginPath();
+          this.hoverG.moveTo(hex.pts[0].x, hex.pts[0].y);
+          for (let i = 1; i < 6; i++) this.hoverG.lineTo(hex.pts[i].x, hex.pts[i].y);
+          this.hoverG.closePath();
+          this.hoverG.fillPath();
+        }
+      },
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Garimpo Neutralizado — menu pós-neutralização
+  // -------------------------------------------------------------------------
+  _menuGarimpoNeutralizado(idx) {
+    const hex         = this.hexagonos[idx];
+    const custoFito   = 35000;
+    const custoVigia  = 20000;
+    const semSaldo    = estadoJogo.dinheiro < custoFito;
+
+    const acoes = [
+      {
+        label:        '🌱 Fitorremediação',
+        custoStr:     `R$ ${custoFito.toLocaleString('pt-BR')} — ${DEV_MODE ? '12s' : '90s'}`,
+        desabilitado: semSaldo,
+        aviso:        semSaldo ? 'Saldo insuficiente' : null,
+        onPress: () => {
+          estadoJogo.dinheiro -= custoFito;
+          this.atualizarPainel();
+          this._fecharMenu();
+          this.selectedIdx = -1;
+          this._desenharSelecao();
+
+          const dur = DEV_MODE ? 12 : 90;
+          this._iniciarTimer(idx, dur, () => {
+            this._cardFitorremediacao(idx);
+          });
+        },
+      },
+      {
+        label:        hex.vigilancia ? '🔓 Desativar Vigilância' : '🔒 Ativar Vigilância',
+        custoStr:     `R$ ${custoVigia.toLocaleString('pt-BR')}/ciclo`,
+        desabilitado: !hex.vigilancia && estadoJogo.dinheiro < custoVigia,
+        aviso:        (!hex.vigilancia && estadoJogo.dinheiro < custoVigia) ? 'Saldo insuficiente' : null,
+        onPress: () => {
+          if (!hex.vigilancia) {
+            estadoJogo.dinheiro -= custoVigia;
+            this.atualizarPainel();
+          }
+          hex.vigilancia = !hex.vigilancia;
+          this._fecharMenu();
+          this._mostrarToast(hex.vigilancia
+            ? '🔒 Vigilância ativada. Área protegida contra reocupação.'
+            : '🔓 Vigilância desativada.');
+          // Redesenha lock emoji se vigilância ativa
+          this._atualizarEmojiVigilancia(idx);
+        },
+      },
+    ];
+
+    this._abrirMenu(idx, {
+      titulo:    'Garimpo Neutralizado',
+      descricao: DESCRICOES['garimpo_neutralizado'],
+      acoes,
+    });
+  }
+
+  _atualizarEmojiVigilancia(idx) {
+    const hex = this.hexagonos[idx];
+    if (hex.tipo !== 'garimpo_neutralizado') return;
+    hex.emojiTxt.setText(hex.vigilancia ? '🔒' : TIPOS['garimpo_neutralizado'].emoji);
+  }
+
+  // -------------------------------------------------------------------------
+  // Garimpo — card educativo da fitorremediação
+  // -------------------------------------------------------------------------
+  _cardFitorremediacao(idx) {
+    this._fecharCard();
+
+    const { width, height } = this.scale;
+    const CARD_W = 420, CARD_H = 300;
+    const cx = width  / 2 - CARD_W / 2;
+    const cy = height / 2 - CARD_H / 2;
+    const DEPTH = 20;
+    const objs  = [];
+
+    const overlay = this.add.graphics().setDepth(DEPTH - 1);
+    overlay.fillStyle(0x000000, 0.55);
+    overlay.fillRect(0, 0, width, height);
+    objs.push(overlay);
+
+    const bgG = this.add.graphics().setDepth(DEPTH);
+    bgG.fillStyle(0x0d2818, 1);
+    bgG.fillRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    bgG.lineStyle(1.5, 0x52b788, 1);
+    bgG.strokeRoundedRect(cx, cy, CARD_W, CARD_H, 10);
+    objs.push(bgG);
+
+    objs.push(this.add.text(cx + 20, cy + 18, '🌱  Fitorremediação Concluída', {
+      fontSize: '16px', color: '#52b788',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setDepth(DEPTH));
+
+    objs.push(this.add.text(cx + 20, cy + 50,
+      'A fitorremediação usa plantas hiperacumuladoras para extrair metais pesados do solo — como mercúrio e arsênio — deixados pelo garimpo. Este processo biorremediou o terreno e o preparou para receber vegetação nativa.',
+      {
+        fontSize: '12px', color: '#d8f3dc', fontFamily: 'Inter, sans-serif',
+        wordWrap: { width: CARD_W - 40 }, lineSpacing: 4,
+      }
+    ).setDepth(DEPTH));
+
+    const divG = this.add.graphics().setDepth(DEPTH);
+    divG.lineStyle(1, 0x2d6a4f, 0.6);
+    divG.lineBetween(cx + 20, cy + 162, cx + CARD_W - 20, cy + 162);
+    objs.push(divG);
+
+    objs.push(this.add.text(cx + 20, cy + 176,
+      '🌿 Impacto: Espécies como a Brassica napus e a Helianthus annuus absorvem contaminantes e estabilizam o pH, tornando o solo fértil novamente.',
+      {
+        fontSize: '12px', color: '#74c69d', fontFamily: 'Inter, sans-serif',
+        wordWrap: { width: CARD_W - 40 }, lineSpacing: 4,
+      }
+    ).setDepth(DEPTH));
+
+    // Botão OK
+    const btnY  = cy + CARD_H - 54;
+    const BTN_W = 200, BTN_H = 38;
+    const btnG  = this.add.graphics().setDepth(DEPTH);
+    const desBt = (h) => {
+      btnG.clear();
+      btnG.fillStyle(h ? 0x2d6a4f : 0x1b4332, 1);
+      btnG.fillRoundedRect(cx + CARD_W / 2 - BTN_W / 2, btnY, BTN_W, BTN_H, 6);
+    };
+    desBt(false);
+    objs.push(btnG);
+
+    objs.push(this.add.text(cx + CARD_W / 2, btnY + BTN_H / 2,
+      '✅ Avançar para plantio', {
+      fontSize: '13px', color: '#d8f3dc',
+      fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(DEPTH));
+
+    const zOk = this.add.zone(cx + CARD_W / 2, btnY + BTN_H / 2, BTN_W, BTN_H)
+      .setDepth(DEPTH).setInteractive({ useHandCursor: true });
+    zOk.on('pointerover', () => desBt(true));
+    zOk.on('pointerout',  () => desBt(false));
+    zOk.on('pointerdown', () => {
+      this._fecharCard();
+      this._mudarEstadoHex(idx, 'solo_preparado');
+      this._mostrarToast('Solo preparado! Agora você pode plantar vegetação nativa.');
+      this.selectedIdx = -1;
+      this._desenharSelecao();
+    });
+    objs.push(zOk);
+
+    this.cardObjs = objs;
+  }
+
+  // -------------------------------------------------------------------------
+  // Reocupação do garimpo (ciclo automático)
+  // -------------------------------------------------------------------------
+  _cicloReocupacao() {
+    const dur = DEV_MODE ? 15000 : 60000;
+    this.time.addEvent({
+      delay: dur, loop: true,
+      callback: () => {
+        this.hexagonos.forEach((hex, idx) => {
+          if (hex.tipo !== 'garimpo_neutralizado') return;
+          if (hex.vigilancia) return;
+          if (hex.bloqueado)  return;
+          if (Math.random() < 0.30) {
+            // Reocupação — gera novo perfil
+            hex.perfil           = PERFIS_GARIMPEIRO[Math.floor(Math.random() * PERFIS_GARIMPEIRO.length)];
+            hex.bonusNegociacao  = 0;
+            hex.vigilancia       = false;
+            this._mudarEstadoHex(idx, 'garimpo');
+            this._mostrarToast('⚠️ Garimpeiros voltaram a ocupar uma área neutralizada!');
+          }
+        });
+      },
+    });
   }
 
   _fecharMenu() {
