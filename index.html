@@ -11,7 +11,17 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #0d2818; overflow: hidden; }
 
-    /* ── UI overlay — flutua acima do canvas Phaser ── */
+    /* ── Container do canvas Phaser ── */
+    #game-container {
+      position: fixed;
+      top: 64px;
+      left: 0;
+      right: 280px;   /* deixa espaço para o painel direito no desktop */
+      bottom: 0;
+    }
+    #game-container canvas { display: block; width: 100% !important; height: 100% !important; }
+
+    /* ── UI overlay — flutua acima do canvas ── */
     #ui-overlay {
       position: fixed;
       top: 0; left: 0;
@@ -19,6 +29,94 @@
       pointer-events: none;
       z-index: 100;
       font-family: 'Inter', sans-serif;
+    }
+
+    /* ── HUD superior ── */
+    #hud-superior {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 64px;
+      background: #0d2818;
+      border-bottom: 1px solid #1e4030;
+      display: flex;
+      align-items: center;
+      z-index: 150;
+      pointer-events: all;
+    }
+
+    /* ── Painel direito ── */
+    #painel-direito {
+      position: fixed;
+      top: 64px;
+      right: 0;
+      width: 280px;
+      height: calc(100vh - 64px);
+      background: #0d2818;
+      border-left: 1px solid #1e4030;
+      overflow-y: auto;
+      padding: 12px 14px;
+      pointer-events: all;
+      z-index: 150;
+      font-family: 'Inter', sans-serif;
+    }
+
+    /* ── Barra inferior mobile (oculta no desktop) ── */
+    #barra-inferior {
+      display: none;
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      height: 60px;
+      background: #0d2818;
+      border-top: 1px solid #1e4030;
+      align-items: center;
+      justify-content: space-around;
+      padding: 0 8px;
+      pointer-events: all;
+      z-index: 150;
+    }
+    .barra-btn {
+      background: none;
+      border: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      cursor: pointer;
+      padding: 6px 14px;
+      border-radius: 8px;
+    }
+    .barra-btn:active { background: #1b4332; }
+    .barra-btn span:first-child { font-size: 20px; }
+    .barra-btn span:last-child {
+      font-family: 'Inter', sans-serif;
+      font-size: 10px;
+      color: #74c69d;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    /* ── Gaveta mobile ── */
+    #gaveta-mobile {
+      position: fixed;
+      bottom: 60px; left: 0; right: 0;
+      max-height: 70vh;
+      background: #0d2818;
+      border-top: 1px solid #2d6a4f;
+      border-radius: 16px 16px 0 0;
+      overflow-y: auto;
+      padding: 16px;
+      pointer-events: all;
+      z-index: 300;
+      transform: translateY(110%);
+      transition: transform 0.28s ease;
+    }
+    #gaveta-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 60px;
+      background: rgba(0,0,0,0.5);
+      pointer-events: all;
+      z-index: 299;
     }
 
     /* ── Menu flutuante dos hexágonos ── */
@@ -34,150 +132,70 @@
       z-index: 200;
     }
     #hex-menu .hm-title {
-      font-family: 'Syne', sans-serif;
-      font-size: 18px;
-      font-weight: 700;
-      color: #d8f3dc;
-      margin-bottom: 4px;
-      line-height: 1.2;
+      font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700;
+      color: #d8f3dc; margin-bottom: 4px; line-height: 1.2;
     }
-    #hex-menu .hm-desc {
-      font-family: 'Inter', sans-serif;
-      font-size: 13px;
-      color: #74c69d;
-      line-height: 1.4;
-    }
+    #hex-menu .hm-desc { font-family: 'Inter', sans-serif; font-size: 13px; color: #74c69d; line-height: 1.4; }
     #hex-menu .hm-close {
-      background: none;
-      border: none;
-      color: #74c69d;
-      font-size: 22px;
-      cursor: pointer;
-      padding: 0;
-      line-height: 1;
-      margin-left: 12px;
-      flex-shrink: 0;
-      transition: color 0.12s;
+      background: none; border: none; color: #74c69d; font-size: 22px; cursor: pointer;
+      padding: 0; line-height: 1; margin-left: 12px; flex-shrink: 0; transition: color 0.12s;
     }
     #hex-menu .hm-close:hover { color: #d8f3dc; }
-    #hex-menu .hm-sep {
-      height: 1px;
-      background: #1e4030;
-      margin: 12px 0;
-    }
-    #hex-menu .hm-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
+    #hex-menu .hm-sep { height: 1px; background: #1e4030; margin: 12px 0; }
+    #hex-menu .hm-list { display: flex; flex-direction: column; gap: 8px; }
     #hex-menu .hm-btn {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 14px;
-      background: #0d2818;
-      border: 1px solid #1e4030;
-      border-radius: 10px;
-      width: 100%;
-      text-align: left;
-      transition: border-color 0.12s, background 0.12s;
+      display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+      background: #0d2818; border: 1px solid #1e4030; border-radius: 10px;
+      width: 100%; text-align: left; transition: border-color 0.12s, background 0.12s;
     }
-    #hex-menu .hm-btn:not(.hm-btn--bloq) {
-      cursor: pointer;
-    }
-    #hex-menu .hm-btn:not(.hm-btn--bloq):hover {
-      border-color: #52b788;
-      background: #1b4332;
-    }
-    #hex-menu .hm-btn--bloq {
-      opacity: 0.45;
-      cursor: not-allowed;
-    }
+    #hex-menu .hm-btn:not(.hm-btn--bloq) { cursor: pointer; }
+    #hex-menu .hm-btn:not(.hm-btn--bloq):hover { border-color: #52b788; background: #1b4332; }
+    #hex-menu .hm-btn--bloq { opacity: 0.45; cursor: not-allowed; }
     #hex-menu .hm-ico {
-      width: 36px; height: 36px;
-      background: #1b4332;
-      border: 1px solid #2d6a4f;
-      border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 16px;
-      flex-shrink: 0;
+      width: 36px; height: 36px; background: #1b4332; border: 1px solid #2d6a4f;
+      border-radius: 8px; display: flex; align-items: center; justify-content: center;
+      font-size: 16px; flex-shrink: 0;
     }
-    #hex-menu .hm-body {
-      flex: 1;
-      min-width: 0;
-    }
-    #hex-menu .hm-label {
-      font-family: 'Inter', sans-serif;
-      font-size: 14px;
-      font-weight: 500;
-      color: #d8f3dc;
-      margin-bottom: 2px;
-      line-height: 1.3;
-    }
-    #hex-menu .hm-bdesc {
-      font-family: 'Inter', sans-serif;
-      font-size: 12px;
-      color: #74c69d;
-    }
-    #hex-menu .hm-custo {
-      text-align: right;
-      flex-shrink: 0;
-    }
-    #hex-menu .hm-custo-val {
-      font-family: 'Inter', sans-serif;
-      font-size: 13px;
-      font-weight: 500;
-      color: #e76f51;
-    }
-    #hex-menu .hm-receita {
-      font-family: 'Inter', sans-serif;
-      font-size: 11px;
-      color: #52b788;
-    }
-    #hex-menu .hm-aviso {
-      font-family: 'Inter', sans-serif;
-      font-size: 12px;
-      color: #e76f51;
-      font-style: italic;
-      padding: 4px 8px;
-      margin-top: -4px;
+    #hex-menu .hm-body { flex: 1; min-width: 0; }
+    #hex-menu .hm-label { font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 500; color: #d8f3dc; margin-bottom: 2px; line-height: 1.3; }
+    #hex-menu .hm-bdesc { font-family: 'Inter', sans-serif; font-size: 12px; color: #74c69d; }
+    #hex-menu .hm-custo { text-align: right; flex-shrink: 0; }
+    #hex-menu .hm-custo-val { font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500; color: #e76f51; }
+    #hex-menu .hm-receita { font-family: 'Inter', sans-serif; font-size: 11px; color: #52b788; }
+    #hex-menu .hm-aviso { font-family: 'Inter', sans-serif; font-size: 12px; color: #e76f51; font-style: italic; padding: 4px 8px; margin-top: -4px; }
+
+    /* ── Responsivo: mobile ── */
+    @media (max-width: 767px) {
+      #hud-superior { height: 52px; }
+      #hud-jogador { display: none; }
+      #hud-ong { font-size: 13px !important; }
+
+      #game-container { top: 52px; right: 0; bottom: 60px; }
+
+      #painel-direito { display: none; }
+      #barra-inferior { display: flex; }
+
+      #hex-menu { width: min(320px, calc(100vw - 16px)); left: 8px !important; }
     }
   </style>
 </head>
 <body>
-  <div id="ui-overlay">
-    <!-- ── Painel superior ── -->
-    <div id="hud-superior" style="
-      position: fixed;
-      top: 0; left: 0; right: 0;
-      height: 64px;
-      background: #0d2818;
-      border-bottom: 1px solid #1e4030;
-      display: flex;
-      align-items: center;
-      z-index: 150;
-      pointer-events: all;
-    "></div>
+  <!-- Canvas do Phaser -->
+  <div id="game-container"></div>
 
-    <!-- ── Painel direito ── -->
-    <div id="painel-direito" style="
-      position: fixed;
-      top: 64px;
-      right: 0;
-      width: 280px;
-      height: calc(100vh - 64px);
-      background: #0d2818;
-      border-left: 1px solid #1e4030;
-      overflow-y: auto;
-      padding: 12px 14px;
-      pointer-events: all;
-      z-index: 150;
-      font-family: 'Inter', sans-serif;
-    "></div>
+  <!-- UI overlay -->
+  <div id="ui-overlay">
+    <div id="hud-superior"></div>
+    <div id="painel-direito"></div>
+    <div id="barra-inferior"></div>
+    <div id="gaveta-overlay" onclick="fecharGaveta()"></div>
+    <div id="gaveta-mobile"></div>
   </div>
+
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
   <script src="src/main.js"></script>
   <script>
+    /* ── Collapsible sections no painel direito ── */
     function toggleSecao(id, header) {
       const el = document.getElementById(id);
       if (!el) return;
@@ -189,6 +207,53 @@
         el.style.display = 'none';
         if (chevron) chevron.textContent = '▶';
       }
+    }
+
+    /* ── Gaveta mobile ── */
+    const GAVETA_TITULOS = {
+      receitas: '💰 Receitas Ativas',
+      parcerias: '🤝 Parcerias',
+      objetivos: '🎯 Objetivos',
+      fauna:     '🦜 Fauna',
+      equipe:    '👥 Equipe',
+    };
+
+    function abrirGaveta(secao) {
+      const gaveta  = document.getElementById('gaveta-mobile');
+      const overlay = document.getElementById('gaveta-overlay');
+      if (!gaveta || !overlay) return;
+
+      // Coleta conteúdo da seção correspondente no painel (invisível no mobile)
+      const ids = {
+        receitas: ['pd-receitas'],
+        parcerias: ['pd-parcerias'],
+        objetivos: ['pd-objetivos'],
+        fauna:     ['pd-fauna-conteudo'],
+        equipe:    ['pd-equipe-ativa', 'pd-bonus-equipe', 'pd-aviso-negociacao', 'pd-contratar', 'pd-maquinario'],
+      };
+      const conteudo = (ids[secao] || [])
+        .map(id => document.getElementById(id)?.innerHTML || '')
+        .join('');
+
+      gaveta.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <span style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:#d8f3dc;">${GAVETA_TITULOS[secao] || secao}</span>
+          <button onclick="fecharGaveta()" style="background:none;border:none;color:#74c69d;font-size:24px;cursor:pointer;line-height:1;">×</button>
+        </div>
+        <div>${conteudo}</div>
+      `;
+
+      overlay.style.display = 'block';
+      // Força reflow para a transição funcionar
+      gaveta.getBoundingClientRect();
+      gaveta.style.transform = 'translateY(0)';
+    }
+
+    function fecharGaveta() {
+      const gaveta  = document.getElementById('gaveta-mobile');
+      const overlay = document.getElementById('gaveta-overlay');
+      if (gaveta)  gaveta.style.transform = 'translateY(110%)';
+      if (overlay) overlay.style.display = 'none';
     }
   </script>
 </body>

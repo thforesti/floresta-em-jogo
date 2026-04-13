@@ -476,8 +476,8 @@ const estadoJogo = {
 // ---------------------------------------------------------------------------
 // Catálogo de membros da equipe
 // ---------------------------------------------------------------------------
-// Largura do painel lateral direito (px)
-const PANEL_W = 280;
+// Largura do painel lateral direito (px) — 0 porque o canvas já exclui o painel via CSS (#game-container right: 280px)
+const PANEL_W = 0;
 
 const CATALOGO_EQUIPE = [
   { tipo: 'tecnico_florestal',  emoji: '👨‍🌾', nome: 'Técnico Florestal',     custo: 5000, funcao: '-10% tempo ecológico por técnico (máx 50%); acumula até 70% com trator.' },
@@ -684,21 +684,40 @@ const HEX_TEXTURE_MAP = {
   pecuaria_intensiva:   'hex-pecuaria',
 };
 
+const EMOJI_TIPO = {
+  solo:                    '',
+  solo_preparado:          '',
+  garimpo:                 '⛏',
+  garimpo_neutralizado:    '',
+  nascente:                '💧',
+  nascente_ativa:          '💧',
+  nascente_bioengenharia:  '💧',
+  queimada:                '🔥',
+  indigena:                '🪶',
+  pecuaria:                '🐄',
+  pecuaria_intensiva:      '🐄',
+  floresta_pioneira:       '🌿',
+  floresta_secundaria:     '🌲',
+  floresta_climax:         '🌳',
+  floresta:                '🌳',
+  viveiro:                 '🪴',
+  saf:                     '🌾',
+  manejo:                  '🪵',
+};
+
 class Jogo extends Phaser.Scene {
   constructor() { super({ key: 'Jogo' }); }
 
   preload() {
-    this.load.on('loaderror', (file) => {
-      console.error('[Phaser] Erro ao carregar textura:', file.key, '→', file.url);
-    });
-    this.load.image('hex-solo-degradado',   'assets/hexagonos/solo-degradado.png');
-    this.load.image('hex-floresta-climax',   'assets/hexagonos/floresta-climax.png');
-    this.load.image('hex-floresta-pioneira', 'assets/hexagonos/floresta-pioneira.png');
-    this.load.image('hex-floresta-secundaria', 'assets/hexagonos/floresta-secundaria.png');
-    this.load.image('hex-garimpo',           'assets/hexagonos/garimpo.png');
-    this.load.image('hex-pecuaria',          'assets/hexagonos/pecuaria.png');
-    this.load.image('hex-queimada',          'assets/hexagonos/queimada.png');
-    this.load.image('hex-area-indigena',     'assets/hexagonos/area-indigena.png');
+    // PNGs desativados — texturas agora são desenhadas proceduralmente em _desenharTexturaHex
+    // this.load.image('hex-solo-degradado',      'assets/hexagonos/solo-degradado.png');
+    // this.load.image('hex-floresta-climax',     'assets/hexagonos/floresta-climax.png');
+    // this.load.image('hex-floresta-pioneira',   'assets/hexagonos/floresta-pioneira.png');
+    // this.load.image('hex-floresta-secundaria', 'assets/hexagonos/floresta-secundaria.png');
+    // this.load.image('hex-garimpo',             'assets/hexagonos/garimpo.png');
+    // this.load.image('hex-pecuaria',            'assets/hexagonos/pecuaria.png');
+    // this.load.image('hex-queimada',            'assets/hexagonos/queimada.png');
+    // this.load.image('hex-area-indigena',       'assets/hexagonos/area-indigena.png');
   }
 
   create() {
@@ -728,6 +747,7 @@ class Jogo extends Phaser.Scene {
     this.txtClimax   = null;
     this._dinheiroHudCx = Math.round(width * 0.38);
     this.criarHUDHTML();
+    this.criarBarraInferiorHTML();
 
     // -----------------------------------------------------------------------
     // Mapa hexagonal
@@ -779,23 +799,11 @@ class Jogo extends Phaser.Scene {
         return { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) };
       });
 
-      fillG.fillStyle(info.cor, 1);
-      fillG.beginPath();
-      fillG.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < 6; i++) fillG.lineTo(pts[i].x, pts[i].y);
-      fillG.closePath();
-      fillG.fillPath();
-
-      fillG.lineStyle(2, 0x2d6a4f, 1);
-      fillG.beginPath();
-      fillG.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < 6; i++) fillG.lineTo(pts[i].x, pts[i].y);
-      fillG.closePath();
-      fillG.strokePath();
+      this._desenharTexturaHex(fillG, cx, cy, tipo);
 
       // Emoji — referência armazenada para atualização dinâmica
-      const emojiTxt = this.add.text(cx, cy, info.emoji, {
-        fontSize: '20px', fontFamily: 'sans-serif',
+      const emojiTxt = this.add.text(cx, cy, EMOJI_TIPO[tipo] ?? '', {
+        fontSize: '16px', fontFamily: 'sans-serif',
       }).setOrigin(0.5).setDepth(4);
 
       const polygon = new Phaser.Geom.Polygon(pts.flatMap(p => [p.x, p.y]));
@@ -870,10 +878,17 @@ class Jogo extends Phaser.Scene {
       const HEX_TEX_DEPTH    = 1.2;   // acima de fillG (0) e hexChangeG (1)
       const HEX_BORDER_DEPTH = 1.45;  // acima das texturas, abaixo do hover (2)
 
-      // Borda permanente — um Graphics por hexágono, sempre visível acima da textura
+      // Borda permanente — um Graphics por hexágono, cor por tipo
+      const COR_BORDA_HEX = {
+        queimada:       0xc1440e,
+        nascente_ativa: 0x4A90D9,
+        floresta_climax: 0x52b788,
+        indigena:       0x9b6fc6,
+      };
       this.hexagonos.forEach(hex => {
-        const bG = this.add.graphics().setDepth(HEX_BORDER_DEPTH);
-        bG.lineStyle(2, 0x2d6a4f, 1);
+        const bG   = this.add.graphics().setDepth(HEX_BORDER_DEPTH);
+        const corB = COR_BORDA_HEX[hex.tipo] || 0x1e4030;
+        bG.lineStyle(1.5, corB, 0.8);
         bG.beginPath();
         bG.moveTo(hex.pts[0].x, hex.pts[0].y);
         for (let i = 1; i < 6; i++) bG.lineTo(hex.pts[i].x, hex.pts[i].y);
@@ -882,11 +897,22 @@ class Jogo extends Phaser.Scene {
         hex._borderG = bG;
       });
 
-      // Textura inicial para cada hexágono
-      this.hexagonos.forEach(hex => {
-        this._setHexTexture(hex, HEX_R, HEX_TEX_DEPTH);
-      });
+      // PNG desativado — textura procedural já aplicada via _desenharTexturaHex em fillG
+      // this.hexagonos.forEach(hex => { this._setHexTexture(hex, HEX_R, HEX_TEX_DEPTH); });
     }
+
+    // -----------------------------------------------------------------------
+    // Centro do mapa + resposta a resize
+    // -----------------------------------------------------------------------
+    this.mapaCentroX = offX + (Math.max(...xs) + Math.min(...xs)) / 2;
+    this.mapaCentroY = offY + (Math.max(...ys) + Math.min(...ys)) / 2;
+    this.cameras.main.centerOn(this.mapaCentroX, this.mapaCentroY);
+    this.scale.on('resize', (gameSize) => {
+      this.cameras.main.centerOn(
+        this.mapaCentroX ?? gameSize.width  / 2,
+        this.mapaCentroY ?? gameSize.height / 2
+      );
+    });
 
     // -----------------------------------------------------------------------
     // Estado de interação
@@ -1030,24 +1056,30 @@ class Jogo extends Phaser.Scene {
     hex.tipo = novoTipo;
     hex.info = info;
 
-    this.hexChangeG.fillStyle(info.cor, 1);
-    this.hexChangeG.beginPath();
-    this.hexChangeG.moveTo(hex.pts[0].x, hex.pts[0].y);
-    for (let i = 1; i < 6; i++) this.hexChangeG.lineTo(hex.pts[i].x, hex.pts[i].y);
-    this.hexChangeG.closePath();
-    this.hexChangeG.fillPath();
+    this._desenharTexturaHex(this.hexChangeG, hex.cx, hex.cy, novoTipo);
 
-    this.hexChangeG.lineStyle(2, 0x2d6a4f, 1);
-    this.hexChangeG.beginPath();
-    this.hexChangeG.moveTo(hex.pts[0].x, hex.pts[0].y);
-    for (let i = 1; i < 6; i++) this.hexChangeG.lineTo(hex.pts[i].x, hex.pts[i].y);
-    this.hexChangeG.closePath();
-    this.hexChangeG.strokePath();
+    // Atualiza borda por tipo
+    if (hex._borderG) {
+      const COR_BORDA_HEX = {
+        queimada:        0xc1440e,
+        nascente_ativa:  0x4A90D9,
+        floresta_climax: 0x52b788,
+        indigena:        0x9b6fc6,
+      };
+      const corB = COR_BORDA_HEX[novoTipo] || 0x1e4030;
+      hex._borderG.clear();
+      hex._borderG.lineStyle(1.5, corB, 0.8);
+      hex._borderG.beginPath();
+      hex._borderG.moveTo(hex.pts[0].x, hex.pts[0].y);
+      for (let i = 1; i < 6; i++) hex._borderG.lineTo(hex.pts[i].x, hex.pts[i].y);
+      hex._borderG.closePath();
+      hex._borderG.strokePath();
+    }
 
-    hex.emojiTxt.setText(info.emoji);
+    hex.emojiTxt.setText(EMOJI_TIPO[novoTipo] ?? '');
 
-    // Atualiza textura hexagonal
-    this._setHexTexture(hex, 36, 1.2);
+    // PNG desativado — textura procedural aplicada em _desenharTexturaHex acima
+    // this._setHexTexture(hex, 36, 1.2);
 
     // Avalia upgrades/downgrades de semáforos indígenas após qualquer mudança
     this._verificarSemaforosIndigenas();
@@ -1123,7 +1155,215 @@ class Jogo extends Phaser.Scene {
   }
 
   // -------------------------------------------------------------------------
-  // Textura hexagonal
+  // Textura procedural por tipo (Graphics)
+  // -------------------------------------------------------------------------
+  _desenharTexturaHex(g, cx, cy, tipo) {
+    console.log('desenhando textura:', tipo);
+    const R   = 36;
+    const pts = [];
+    for (let i = 0; i < 6; i++) {
+      const ang = Math.PI / 6 + (Math.PI / 3) * i;
+      pts.push({ x: cx + R * Math.cos(ang), y: cy + R * Math.sin(ang) });
+    }
+
+    switch (tipo) {
+
+      case 'solo':
+      case 'solo_preparado':
+      case 'garimpo_neutralizado': {
+        g.fillStyle(tipo === 'solo_preparado' ? 0x3d2b0f : 0x6b4c1a, 1);
+        g.fillPoints(pts, true);
+        g.fillStyle(tipo === 'solo_preparado' ? 0x2a1d08 : 0x4a3210, 0.6);
+        for (let i = 0; i < 6; i++) {
+          const px = cx + (Math.random() - 0.5) * 40;
+          const py = cy + (Math.random() - 0.5) * 40;
+          g.fillCircle(px, py, 4 + Math.random() * 5);
+        }
+        g.lineStyle(1, tipo === 'solo_preparado' ? 0x1a0e04 : 0x3a2508, 0.5);
+        g.beginPath();
+        g.moveTo(cx - 10, cy - 8); g.lineTo(cx + 5,  cy + 3);
+        g.moveTo(cx + 8,  cy - 12); g.lineTo(cx - 2, cy + 8);
+        g.strokePath();
+        break;
+      }
+
+      case 'garimpo': {
+        g.fillStyle(0x4a4a4a, 1);
+        g.fillPoints(pts, true);
+        g.fillStyle(0x2e2e2e, 0.7);
+        g.fillCircle(cx - 8, cy + 5, 10);
+        g.fillCircle(cx + 10, cy - 8, 7);
+        g.fillStyle(0x6e6e6e, 0.4);
+        g.fillCircle(cx, cy - 5, 5);
+        g.fillStyle(0xaaaacc, 0.6);
+        g.fillEllipse(cx + 6, cy + 10, 12, 6);
+        break;
+      }
+
+      case 'nascente': {
+        g.fillStyle(0x7a5c2e, 1);
+        g.fillPoints(pts, true);
+        g.fillStyle(0x5a3e1a, 0.5);
+        g.fillEllipse(cx, cy + 5, 30, 15);
+        g.lineStyle(1, 0x3a2508, 0.6);
+        g.beginPath();
+        g.moveTo(cx - 5, cy - 10); g.lineTo(cx, cy); g.lineTo(cx + 8, cy + 12);
+        g.strokePath();
+        break;
+      }
+
+      case 'nascente_ativa': {
+        g.fillStyle(0x1a5f8a, 1);
+        g.fillPoints(pts, true);
+        g.fillStyle(0x2a8fba, 0.5);
+        g.fillEllipse(cx, cy, 40, 30);
+        g.fillStyle(0x4ab8d8, 0.3);
+        g.fillEllipse(cx - 5, cy - 5, 20, 12);
+        g.lineStyle(1, 0x7dd4ec, 0.5);
+        g.beginPath();
+        g.moveTo(cx - 12, cy); g.lineTo(cx - 6, cy - 3); g.lineTo(cx, cy);
+        g.lineTo(cx + 6, cy - 3); g.lineTo(cx + 12, cy);
+        g.strokePath();
+        break;
+      }
+
+      case 'nascente_bioengenharia': {
+        g.fillStyle(0x1e4f6a, 1);
+        g.fillPoints(pts, true);
+        g.fillStyle(0x2d7a5a, 0.4);
+        g.fillEllipse(cx, cy + 8, 35, 18);
+        break;
+      }
+
+      case 'queimada': {
+        g.fillStyle(0x1a0a00, 1);
+        g.fillPoints(pts, true);
+        g.fillStyle(0x3d1500, 0.8);
+        g.fillCircle(cx, cy + 5, 18);
+        const brasaCores = [0xff6b00, 0xff4400, 0xcc3300];
+        for (let i = 0; i < 8; i++) {
+          const bx = cx + (Math.random() - 0.5) * 44;
+          const by = cy + (Math.random() - 0.5) * 44;
+          g.fillStyle(brasaCores[Math.floor(Math.random() * 3)], 0.4 + Math.random() * 0.4);
+          g.fillCircle(bx, by, 1 + Math.random() * 2);
+        }
+        break;
+      }
+
+      case 'indigena': {
+        g.fillStyle(0x5a2d82, 1);
+        g.fillPoints(pts, true);
+        g.fillStyle(0x7b4fa6, 0.5);
+        g.fillCircle(cx, cy, 20);
+        g.fillStyle(0x3d1f5a, 0.4);
+        g.lineStyle(1, 0x9b6fc6, 0.4);
+        g.beginPath();
+        g.moveTo(cx, cy - 18); g.lineTo(cx + 16, cy + 9); g.lineTo(cx - 16, cy + 9);
+        g.closePath();
+        g.strokePath();
+        break;
+      }
+
+      case 'pecuaria': {
+        g.fillStyle(0x8a7a20, 1);
+        g.fillPoints(pts, true);
+        g.fillStyle(0xb8a030, 0.5);
+        g.fillEllipse(cx, cy, 50, 35);
+        g.fillStyle(0x6b5c10, 0.3);
+        g.fillCircle(cx - 12, cy + 8, 8);
+        g.fillCircle(cx + 14, cy - 5, 6);
+        break;
+      }
+
+      case 'pecuaria_intensiva': {
+        g.fillStyle(0x5a7a1a, 1);
+        g.fillPoints(pts, true);
+        g.fillStyle(0x7aaa2a, 0.5);
+        g.fillEllipse(cx, cy, 50, 35);
+        break;
+      }
+
+      case 'floresta':
+      case 'floresta_pioneira': {
+        g.fillStyle(0x3a7a3a, 1);
+        g.fillPoints(pts, true);
+        g.fillStyle(0x5aa85a, 0.6);
+        g.fillCircle(cx - 8, cy - 5, 12);
+        g.fillCircle(cx + 10, cy + 8, 9);
+        g.fillStyle(0x4a6a1a, 0.3);
+        g.fillCircle(cx + 2, cy - 10, 7);
+        break;
+      }
+
+      case 'floresta_secundaria': {
+        g.fillStyle(0x1e6b3a, 1);
+        g.fillPoints(pts, true);
+        g.fillStyle(0x2d9e5a, 0.6);
+        g.fillCircle(cx, cy - 5, 18);
+        g.fillCircle(cx - 12, cy + 8, 12);
+        g.fillCircle(cx + 12, cy + 6, 10);
+        g.fillStyle(0x1a5a2a, 0.5);
+        g.fillCircle(cx + 5, cy - 12, 8);
+        break;
+      }
+
+      case 'floresta_climax': {
+        g.fillStyle(0x0d3d1e, 1);
+        g.fillPoints(pts, true);
+        g.fillStyle(0x1a6b35, 0.8);
+        g.fillCircle(cx, cy, 22);
+        g.fillStyle(0x0f4a22, 1);
+        g.fillCircle(cx - 10, cy - 8,  14);
+        g.fillCircle(cx + 10, cy - 5,  12);
+        g.fillCircle(cx - 5,  cy + 12, 10);
+        g.fillCircle(cx + 8,  cy + 10, 11);
+        g.fillStyle(0x2d9e5a, 0.2);
+        g.fillCircle(cx - 6, cy - 10, 6);
+        break;
+      }
+
+      case 'viveiro': {
+        g.fillStyle(0x1a4a2a, 1);
+        g.fillPoints(pts, true);
+        g.fillStyle(0x2d7a4a, 0.6);
+        g.fillRect(cx - 15, cy - 10, 12, 8);
+        g.fillRect(cx + 3,  cy - 10, 12, 8);
+        g.fillRect(cx - 15, cy + 4,  12, 8);
+        g.fillRect(cx + 3,  cy + 4,  12, 8);
+        break;
+      }
+
+      case 'saf': {
+        g.fillStyle(0x4a5a1a, 1);
+        g.fillPoints(pts, true);
+        g.fillStyle(0x6a8a2a, 0.5);
+        g.fillEllipse(cx, cy, 45, 30);
+        g.fillStyle(0x3a7a2a, 0.6);
+        g.fillCircle(cx - 10, cy - 8, 9);
+        g.fillCircle(cx + 10, cy + 5, 8);
+        break;
+      }
+
+      case 'manejo': {
+        g.fillStyle(0x2a4a1a, 1);
+        g.fillPoints(pts, true);
+        g.fillStyle(0x3a6a2a, 0.6);
+        g.fillCircle(cx, cy, 16);
+        g.fillStyle(0x4a8a3a, 0.4);
+        g.fillCircle(cx - 12, cy + 5,  10);
+        g.fillCircle(cx + 10, cy - 8,  9);
+        break;
+      }
+
+      default: {
+        g.fillStyle(0x2d6a4f, 1);
+        g.fillPoints(pts, true);
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Textura PNG hexagonal (overlay clipado)
   // -------------------------------------------------------------------------
   _setHexTexture(hex, R, depth) {
     const texKey = HEX_TEXTURE_MAP[hex.tipo];
@@ -5326,6 +5566,32 @@ class Jogo extends Phaser.Scene {
   }
 
   // =========================================================================
+  // BARRA INFERIOR MOBILE HTML
+  // =========================================================================
+
+  criarBarraInferiorHTML() {
+    const barra = document.getElementById('barra-inferior');
+    if (!barra) return;
+    barra.innerHTML = `
+      <button class="barra-btn" onclick="abrirGaveta('receitas')">
+        <span>💰</span><span>Receitas</span>
+      </button>
+      <button class="barra-btn" onclick="abrirGaveta('parcerias')">
+        <span>🤝</span><span>Parcerias</span>
+      </button>
+      <button class="barra-btn" onclick="abrirGaveta('objetivos')">
+        <span>🎯</span><span>Objetivos</span>
+      </button>
+      <button class="barra-btn" onclick="abrirGaveta('fauna')">
+        <span>🦜</span><span>Fauna</span>
+      </button>
+      <button class="barra-btn" onclick="abrirGaveta('equipe')">
+        <span>👥</span><span>Equipe</span>
+      </button>
+    `;
+  }
+
+  // =========================================================================
   // PAINEL DIREITO HTML
   // =========================================================================
 
@@ -5786,9 +6052,13 @@ class TelaVitoria extends Phaser.Scene {
 // ---------------------------------------------------------------------------
 const config = {
   type: Phaser.AUTO,
-  width: 1280,
-  height: 720,
   backgroundColor: '#0d2818',
+  scale: {
+    mode: Phaser.Scale.RESIZE,
+    parent: 'game-container',
+    width: '100%',
+    height: '100%',
+  },
   scene: [TelaInicial, Onboarding1, Onboarding2, Onboarding3, Jogo, TelaVitoria],
 };
 
