@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Floresta em Jogo</title>
+  <link rel="stylesheet" href="design-system.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+  <style>
+    body { background-color: #1B4332; }
+    #game-over-overlay {
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--overlay-escuro);
+      z-index: var(--z-game-over);
+    }
+    #canvas-container { left: 240px; width: calc(100vw - 240px); }
+    .painel__item {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 12px; color: rgba(255,255,255,0.85);
+      font-family: var(--fonte-corpo); font-size: 13px;
+    }
+    .painel__item--muted {
+      padding: 2px 12px; color: rgba(255,255,255,0.45);
+      font-family: var(--fonte-corpo); font-size: 12px;
+    }
+    .painel__item--positivo { color: var(--floresta-clara); font-weight: 700; }
+    .painel__item--negativo { color: var(--farol-vermelho); font-weight: 700; }
+    .painel__qtd  { margin-left: auto; opacity: 0.7; }
+    .painel__btn-sm   { padding: 2px 8px !important; min-width: 28px; }
+    .painel__btn-bloco { width: 100%; }
+    #alertas-stack {
+      position: fixed; bottom: 24px; right: 72px;
+      display: flex; flex-direction: column; gap: 8px;
+      z-index: var(--z-alerta); max-width: 320px;
+    }
+    #alertas-stack .alerta { position: static; }
+  </style>
+</head>
+<body>
+  <div id="hud-container">
+    <div class="hud-recurso">
+      <span class="hud-recurso__icone">📅</span>
+      <div>
+        <div class="hud-recurso__label">Ciclo</div>
+        <div class="hud-recurso__valor" id="hud-ciclo">Mês 1 · Ciclo 0</div>
+      </div>
+    </div>
+    <div class="hud-recurso">
+      <span class="hud-recurso__icone">💰</span>
+      <div>
+        <div class="hud-recurso__label">Saldo</div>
+        <div class="hud-recurso__valor" id="hud-saldo">R$ 12.000</div>
+      </div>
+    </div>
+    <div class="hud-recurso">
+      <span class="hud-recurso__icone">💧</span>
+      <div>
+        <div class="hud-recurso__label">Água</div>
+        <div class="hud-recurso__valor" id="hud-agua">0 un</div>
+      </div>
+    </div>
+    <div class="hud-recurso">
+      <span class="hud-recurso__icone">⚡</span>
+      <div>
+        <div class="hud-recurso__label">Energia</div>
+        <div class="hud-recurso__valor" id="hud-energia">0 kWh</div>
+      </div>
+    </div>
+    <div class="hud-recurso">
+      <span class="hud-recurso__icone">🌱</span>
+      <div>
+        <div class="hud-recurso__label">Mudas</div>
+        <div class="hud-recurso__valor" id="hud-mudas">0 un</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="painel-lateral"></div>
+  <div id="canvas-container"></div>
+
+  <div class="controles-camera">
+    <button class="btn-zoom" onclick="window.zoomIn()">+</button>
+    <button class="btn-zoom" onclick="window.zoomOut()">−</button>
+    <button class="btn-zoom" onclick="window.resetCamera()" title="Centralizar">⌂</button>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
